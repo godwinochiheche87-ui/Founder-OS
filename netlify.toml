@@ -1,0 +1,12 @@
+# If you already have a netlify.toml in your repo, merge this section into it
+# rather than replacing the whole file (keep your existing [functions] /
+# [[redirects]] blocks for the Stripe setup, etc.)
+
+[[edge_functions]]
+  path = "/app.html"
+  function = "auth-guard"
+
+# Add one of these per additional protected page, e.g.:
+# [[edge_functions]]
+#   path = "/app/*"
+#   function = "auth-guard"
