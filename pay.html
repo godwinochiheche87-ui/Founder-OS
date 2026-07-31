@@ -59,7 +59,7 @@ button.primary:disabled{opacity:.6;cursor:default;}
     </div>
 
     <div class="pricebox">
-      <div class="amount" id="price-display">₦39,980</div>
+      <div class="amount" id="price-display">₦39980</div>
       <div class="tag">one-time payment</div>
     </div>
 
@@ -78,7 +78,7 @@ button.primary:disabled{opacity:.6;cursor:default;}
   // TODO: keep in sync with PRICE_NGN / PRICE_USD env vars (or their defaults) in
   // netlify/functions/initiate-payment.js -- this is just what's DISPLAYED here;
   // the amount actually charged always comes from the server, not this page.
-  const PRICES = { NGN: 39,980, USD: 33 };
+  const PRICES = { NGN: 39980, USD: 33 };
 
   const priceDisplay = document.getElementById('price-display');
   const curNgnBtn = document.getElementById('cur-ngn');
