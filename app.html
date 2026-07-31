@@ -49,7 +49,7 @@
 
     // localStorage can be empty even though the edge function's cookie check
     // passed (e.g. a different browser profile) -- hydrate from the same cookies.
-    if(!session){
+    if(!session){ 
       const cookies = readCookies();
       if(cookies['sb-access-token'] && cookies['sb-refresh-token']){
         const { data, error } = await sb.auth.setSession({
