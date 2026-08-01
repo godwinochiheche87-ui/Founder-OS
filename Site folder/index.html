@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Founder OS — the self-serve system for solo founders</title>
+<style>
+:root{
+  --bg:#0F1521;
+  --panel:#161E2E;
+  --panel-2:#1C2536;
+  --line:#2A3548;
+  --ink:#EDEFF3;
+  --muted:#8894A8;
+  --dim:#5C6883;
+  --amber:#F2A93B;
+  --amber-dim:#7A5A22;
+  --teal:#4FD1C5;
+  --red:#E2574C;
+  --violet:#8E8CD8;
+  --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, "Inter", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  --radius: 3px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:var(--sans);}
+body{font-size:15px;line-height:1.6;}
+h1,h2,h3{font-family:var(--sans);margin:0;letter-spacing:-.01em;}
+a{color:inherit;}
+.mono{font-family:var(--mono);}
+::-webkit-scrollbar{width:8px;} ::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
+
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:18px 32px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(15,21,33,.92);backdrop-filter:blur(6px);z-index:10;}
+.brandmark{display:flex;align-items:center;gap:10px;}
+.brandmark .dot{width:8px;height:8px;border-radius:50%;background:var(--teal);box-shadow:0 0 8px var(--teal);animation:pulse 2.4s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+.brandmark b{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;}
+.navcta{display:flex;gap:10px;}
+.btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:9px 16px;border-radius:var(--radius);cursor:pointer;text-decoration:none;display:inline-block;border:1px solid transparent;}
+.btn-ghost{color:var(--muted);border-color:var(--line);}
+.btn-ghost:hover{color:var(--ink);border-color:var(--dim);}
+.btn-amber{background:var(--amber);color:#1a1206;}
+.btn-amber:hover{background:#f6bb5e;}
+
+.hero{max-width:1080px;margin:0 auto;padding:88px 32px 64px;display:grid;grid-template-columns:1.1fr .9fr;gap:56px;align-items:center;}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--teal);margin-bottom:16px;}
+.hero h1{font-size:44px;line-height:1.12;font-weight:650;}
+.hero h1 span{color:var(--amber);}
+.hero p.lede{color:var(--muted);font-size:16px;margin-top:18px;max-width:46ch;}
+.hero-ctas{margin-top:30px;display:flex;gap:12px;align-items:center;}
+.hero-ctas .btn{padding:12px 20px;font-size:14px;}
+.hero-note{margin-top:14px;color:var(--dim);font-size:12.5px;font-family:var(--mono);}
+
+/* Signature element: a live-looking readout panel mirroring the actual app UI */
+.readout{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;box-shadow:0 24px 60px -20px rgba(0,0,0,.6);}
+.readout .rbar{display:flex;border-bottom:1px solid var(--line);}
+.readout .rmetric{flex:1;padding:10px 12px;border-right:1px solid var(--line);}
+.readout .rmetric:last-child{border-right:none;}
+.readout .rmetric .lbl{font-family:var(--mono);font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;}
+.readout .rmetric .val{font-family:var(--mono);font-size:15px;font-weight:600;margin-top:3px;}
+.readout .rmetric .val.good{color:var(--teal);}
+.readout .rmetric .val.warn{color:var(--amber);}
+.readout .rlist{padding:14px;}
+.readout .rrow{display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:4px;font-size:12.5px;}
+.readout .rrow:hover{background:var(--panel-2);}
+.readout .rrow .rn{font-family:var(--mono);font-size:10px;color:var(--dim);width:18px;}
+.readout .rrow .rdot{width:6px;height:6px;border-radius:50%;background:var(--line);}
+.readout .rrow .rdot.on{background:var(--teal);}
+.readout .rrow .rdot.cur{background:var(--amber);}
+.readout .rrow.dim{color:var(--dim);}
+
+.section{max-width:1080px;margin:0 auto;padding:56px 32px;}
+.section-head{margin-bottom:32px;}
+.section-head .eyebrow{margin-bottom:10px;}
+.section-head h2{font-size:26px;}
+.section-head p{color:var(--muted);font-size:14.5px;margin-top:10px;max-width:60ch;}
+
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+.cell{background:var(--panel);padding:20px;min-height:118px;display:flex;flex-direction:column;justify-content:space-between;}
+.cell .num{font-family:var(--mono);font-size:10px;color:var(--amber-dim);}
+.cell .name{font-size:13.5px;margin-top:10px;font-weight:600;}
+.cell .layer{font-family:var(--mono);font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;margin-top:4px;}
+
+.strip{max-width:1080px;margin:0 auto;padding:0 32px 56px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+.stripcard{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:22px;}
+.stripcard h3{font-size:14.5px;margin-bottom:8px;}
+.stripcard p{color:var(--muted);font-size:13px;margin:0;}
+.stripcard .tag{font-family:var(--mono);font-size:10px;color:var(--teal);letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;display:block;}
+
+.closer{max-width:720px;margin:0 auto;padding:64px 32px 100px;text-align:center;}
+.closer h2{font-size:28px;}
+.closer p{color:var(--muted);margin-top:14px;font-size:15px;}
+.closer .btn{margin-top:26px;padding:13px 26px;font-size:14.5px;}
+
+footer{border-top:1px solid var(--line);padding:24px 32px;text-align:center;color:var(--dim);font-size:12px;font-family:var(--mono);}
+
+@media (max-width:860px){
+  .hero{grid-template-columns:1fr;padding-top:56px;}
+  .hero h1{font-size:32px;}
+  .grid{grid-template-columns:repeat(2,1fr);}
+  .strip{grid-template-columns:1fr;}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brandmark"><div class="dot"></div><b>Founder OS</b></div>
+  <div class="navcta">
+    <a class="btn btn-ghost" href="/login.html">Sign in</a>
+    <a class="btn btn-amber" href="/pay.html">Get started</a>
+  </div>
+</div>
+
+<section class="hero">
+  <div>
+    <div class="eyebrow">Self-serve build · one file, twelve modules</div>
+    <h1>Run your company from <span>one screen</span>, not twelve open tabs.</h1>
+    <p class="lede">Founder OS is the operating layer for solo founders: idea validation, naming, business model, finance, product, go-to-market, hiring, ops, metrics, and more — wired together so each decision updates the next.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-amber" href="/pay.html">Get started free</a>
+      <a class="btn btn-ghost" href="/login.html">Sign in</a>
+    </div>
+    <div class="hero-note">No spreadsheets. No twelve disconnected Notion pages. Just your business, tracked honestly.</div>
+  </div>
+
+  <div class="readout">
+    <div class="rbar">
+      <div class="rmetric"><div class="lbl">Burn / mo</div><div class="val warn">$4,200</div></div>
+      <div class="rmetric"><div class="lbl">Runway</div><div class="val good">7.4 mo</div></div>
+      <div class="rmetric"><div class="lbl">Decisions</div><div class="val">18</div></div>
+    </div>
+    <div class="rlist">
+      <div class="rrow"><span class="rn">00</span><span class="rdot on"></span>Mission Control</div>
+      <div class="rrow"><span class="rn">01</span><span class="rdot on"></span>Ideation &amp; Validation</div>
+      <div class="rrow"><span class="rn">02</span><span class="rdot on"></span>Naming &amp; Identity Lab</div>
+      <div class="rrow"><span class="rn">03</span><span class="rdot cur"></span>Business Model &amp; Planning</div>
+      <div class="rrow dim"><span class="rn">04</span><span class="rdot"></span>Finance &amp; Budgeting</div>
+      <div class="rrow dim"><span class="rn">05</span><span class="rdot"></span>Product / Service Build</div>
+      <div class="rrow dim"><span class="rn">06</span><span class="rdot"></span>Go-to-Market &amp; Growth</div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div class="eyebrow">The full stack</div>
+    <h2>Twelve modules, one gated path</h2>
+    <p>Structured so you move idea → validation → brand → launch → team, one cleared gate at a time — not by folder, but by the actual state of your business.</p>
+  </div>
+  <div class="grid">
+    <div class="cell"><div class="num">00</div><div class="name">Mission Control</div><div class="layer">Overview</div></div>
+    <div class="cell"><div class="num">01</div><div class="name">Ideation &amp; Validation</div><div class="layer">Foundation</div></div>
+    <div class="cell"><div class="num">02</div><div class="name">Naming &amp; Identity Lab</div><div class="layer">Foundation</div></div>
+    <div class="cell"><div class="num">03</div><div class="name">Business Model &amp; Planning</div><div class="layer">Foundation</div></div>
+    <div class="cell"><div class="num">04</div><div class="name">Finance &amp; Budgeting</div><div class="layer">Survival</div></div>
+    <div class="cell"><div class="num">05</div><div class="name">Product / Service Build</div><div class="layer">Execution</div></div>
+    <div class="cell"><div class="num">06</div><div class="name">Go-to-Market &amp; Growth</div><div class="layer">Execution</div></div>
+    <div class="cell"><div class="num">07</div><div class="name">Hiring &amp; People Ops</div><div class="layer">Team</div></div>
+    <div class="cell"><div class="num">08</div><div class="name">Operations &amp; Legal</div><div class="layer">Infrastructure</div></div>
+    <div class="cell"><div class="num">09</div><div class="name">Metrics &amp; Reporting</div><div class="layer">Reality check</div></div>
+    <div class="cell"><div class="num">10</div><div class="name">Decisions Log</div><div class="layer">Reality check</div></div>
+    <div class="cell"><div class="num">11</div><div class="name">Weekly To-dos</div><div class="layer">Reality check</div></div>
+  </div>
+</section>
+
+<div class="strip">
+  <div class="stripcard">
+    <span class="tag">Built for solo</span>
+    <h3>No team required</h3>
+    <p>Every module assumes you're the founder, the ops person, and the hire manager, all at once. Nothing here waits on a co-founder to fill in.</p>
+  </div>
+  <div class="stripcard">
+    <span class="tag">Honest by design</span>
+    <h3>Gates, not vibes</h3>
+    <p>The validation checklist and launch gates move only when the underlying work is actually done — not because a page got marked "complete."</p>
+  </div>
+  <div class="stripcard">
+    <span class="tag">Yours to keep</span>
+    <h3>One file, your data</h3>
+    <p>Your workspace lives under your own account. Sign in from anywhere and it's exactly where you left it.</p>
+  </div>
+</div>
+
+<section class="closer">
+  <h2>Stop rebuilding your business in a new tab every week.</h2>
+  <p>Create an account and your workspace is ready in under a minute.</p>
+  <a class="btn btn-amber" href="/pay.html">Get started free</a>
+</section>
+
+<footer>FOUNDER OS · self-serve build</footer>
+
+</body>
+</html>

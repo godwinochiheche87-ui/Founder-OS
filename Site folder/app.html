@@ -1,0 +1,1873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Founder's Self-Serve Notion OS</title>
+
+<!-- ===== AUTH GUARD (Supabase) ===== -->
+<!-- The real gate is the Netlify Edge Function (netlify/edge-functions/auth-guard.js),
+     which checks the sb-access-token / sb-refresh-token cookies BEFORE this file is
+     ever sent to the browser. This client-side script is defense-in-depth: it keeps
+     the Supabase JS SDK's session (localStorage) and the cookies the edge function
+     reads in sync, and reacts if the session ends while the tab is open. -->
+<style>html{visibility:hidden;}</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  // TODO: replace with your real Supabase project values (Project Settings -> API)
+  const SUPABASE_URL = "https://havhbckvcbuoakkzlelb.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhhdmhiY2t2Y2J1b2Fra3psZWxiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyMzc4MDEsImV4cCI6MjEwMDgxMzgwMX0.QSiiMrvOR7Eb0vaWT49TmXD2T5YeccnIOxlAmCHZuJA";
+
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+  });
+  window.sb = sb; // exposed so the rest of the app (sign-out button, etc.) can use it
+
+  function readCookies(){
+    const out = {};
+    document.cookie.split(';').forEach(part => {
+      const i = part.indexOf('=');
+      if(i === -1) return;
+      out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    });
+    return out;
+  }
+  function writeSessionCookies(session){
+    const isHttps = location.protocol === 'https:';
+    const secure = isHttps ? '; Secure' : '';
+    const maxAge = 60 * 60 * 24 * 30;
+    document.cookie = `sb-access-token=${encodeURIComponent(session.access_token)}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`;
+    document.cookie = `sb-refresh-token=${encodeURIComponent(session.refresh_token)}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`;
+  }
+  function clearSessionCookies(){
+    document.cookie = 'sb-access-token=; Path=/; Max-Age=0; SameSite=Lax';
+    document.cookie = 'sb-refresh-token=; Path=/; Max-Age=0; SameSite=Lax';
+  }
+
+  (async function guard(){
+    let { data: { session } } = await sb.auth.getSession();
+
+    // localStorage can be empty even though the edge function's cookie check
+    // passed (e.g. a different browser profile) -- hydrate from the same cookies.
+    if(!session){ 
+      const cookies = readCookies();
+      if(cookies['sb-access-token'] && cookies['sb-refresh-token']){
+        const { data, error } = await sb.auth.setSession({
+          access_token: cookies['sb-access-token'],
+          refresh_token: cookies['sb-refresh-token']
+        });
+        if(!error) session = data.session;
+      }
+    }
+
+    if(!session){
+      const next = encodeURIComponent(location.pathname + location.search);
+      window.location.replace('/login.html?redirect=' + next);
+      return;
+    }
+
+    window.__authUser = session.user;
+    writeSessionCookies(session);
+    document.documentElement.style.visibility = 'visible';
+
+    sb.auth.onAuthStateChange((event, newSession) => {
+      if(event === 'SIGNED_OUT' || !newSession){
+        clearSessionCookies();
+        window.location.replace('/login.html');
+      } else if(event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN'){
+        writeSessionCookies(newSession); // keep the edge function's cookie fresh too
+      }
+    });
+  })();
+</script>
+<!-- ===== END AUTH GUARD ===== -->
+
+
+<style>
+:root{
+  --bg:#0F1521;
+  --panel:#161E2E;
+  --panel-2:#1C2536;
+  --line:#2A3548;
+  --ink:#EDEFF3;
+  --muted:#8894A8;
+  --dim:#5C6883;
+  --amber:#F2A93B;
+  --amber-dim:#7A5A22;
+  --teal:#4FD1C5;
+  --red:#E2574C;
+  --violet:#8E8CD8;
+  --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, "Inter", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  --disp: ui-sans-serif, "Inter", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  --radius: 3px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:var(--sans);}
+body{font-size:14px;line-height:1.5;}
+h1,h2,h3,h4{font-family:var(--disp);margin:0 0 6px 0;letter-spacing:-.01em;}
+button{font-family:var(--sans);cursor:pointer;}
+input,textarea,select{font-family:var(--sans);background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:var(--radius);padding:6px 8px;font-size:13px;}
+input:focus,textarea:focus,select:focus{outline:1px solid var(--amber);border-color:var(--amber);}
+.mono{font-family:var(--mono);}
+::-webkit-scrollbar{width:8px;height:8px;}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
+
+/* ---- Shell layout ---- */
+.shell{display:flex;flex-direction:column;min-height:100vh;}
+.statusbar{
+  display:flex;align-items:center;gap:0;
+  background:linear-gradient(180deg,#141B29,#101623);
+  border-bottom:1px solid var(--line);
+  padding:0 16px;flex-wrap:wrap;
+  position:sticky;top:0;z-index:20;
+}
+.brandmark{display:flex;align-items:center;gap:10px;padding:12px 16px 12px 0;border-right:1px solid var(--line);margin-right:16px;}
+.brandmark .dot{width:9px;height:9px;border-radius:50%;background:var(--teal);box-shadow:0 0 8px var(--teal);animation:pulse 2.4s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+.brandmark b{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink);}
+.brandmark span{font-size:10px;color:var(--dim);font-family:var(--mono);letter-spacing:.08em;}
+
+.metric{padding:8px 16px;border-right:1px solid var(--line);min-width:112px;}
+.metric .lbl{font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);font-family:var(--mono);margin-bottom:3px;}
+.metric .val{font-family:var(--mono);font-size:17px;font-weight:600;color:var(--ink);}
+.metric .val.warn{color:var(--amber);}
+.metric .val.crit{color:var(--red);}
+.metric .val.good{color:var(--teal);}
+
+.gatewrap{display:flex;align-items:center;gap:6px;padding:8px 4px 8px 16px;margin-left:auto;}
+.gatewrap .gname{font-family:var(--mono);font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;}
+.gate{width:34px;height:6px;border-radius:2px;background:var(--line);position:relative;overflow:hidden;}
+.gate.on{background:var(--teal);}
+.gate.cur{background:var(--amber);}
+
+.body{display:flex;flex:1;min-height:0;}
+.sidebar{
+  width:230px;flex:0 0 230px;background:var(--panel);border-right:1px solid var(--line);
+  padding:14px 0;overflow-y:auto;max-height:calc(100vh - 49px);position:sticky;top:49px;
+}
+.layer-label{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim);padding:14px 18px 6px;}
+.navbtn{display:flex;align-items:baseline;gap:8px;width:100%;text-align:left;background:none;border:none;color:var(--muted);
+  padding:8px 18px;font-size:13px;border-left:2px solid transparent;}
+.navbtn .num{font-family:var(--mono);font-size:10px;color:var(--dim);width:16px;flex:0 0 16px;}
+.navbtn:hover{background:var(--panel-2);color:var(--ink);}
+.navbtn.active{background:var(--panel-2);color:var(--ink);border-left-color:var(--amber);font-weight:600;}
+.navbtn.active .num{color:var(--amber);}
+
+.content{flex:1;padding:28px 34px 80px;overflow-x:hidden;max-width:1180px;}
+.panel{display:none;}
+.panel.active{display:block;animation:fade .25s ease;}
+@keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+
+.eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);margin-bottom:6px;}
+.paneltitle{font-size:26px;margin-bottom:4px;}
+.subtitle{color:var(--muted);font-size:14px;margin-bottom:26px;max-width:760px;}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-bottom:18px;}
+.card h3{font-size:14px;color:var(--ink);display:flex;align-items:center;gap:8px;}
+.card h3 .tag{font-family:var(--mono);font-size:9.5px;color:var(--dim);background:var(--panel-2);border:1px solid var(--line);padding:2px 6px;border-radius:2px;text-transform:uppercase;letter-spacing:.06em;}
+.card p.hint{color:var(--muted);font-size:12.5px;margin:2px 0 14px;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
+@media (max-width:820px){.grid2,.grid3{grid-template-columns:1fr;}}
+label.f{display:block;font-family:var(--mono);font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;}
+.field{margin-bottom:12px;}
+.field textarea{width:100%;min-height:64px;resize:vertical;}
+.field input, .field select{width:100%;}
+
+table.dt{width:100%;border-collapse:collapse;font-size:12.5px;}
+table.dt th{text-align:left;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);
+  border-bottom:1px solid var(--line);padding:6px 8px;white-space:nowrap;}
+table.dt td{border-bottom:1px solid var(--line);padding:4px 6px;vertical-align:middle;}
+table.dt td input, table.dt td select{width:100%;min-width:60px;padding:4px 6px;font-size:12px;background:transparent;border:1px solid transparent;}
+table.dt td input:hover, table.dt td select:hover{border-color:var(--line);}
+table.dt tr:hover td{background:rgba(255,255,255,.02);}
+.rowdel{background:none;border:none;color:var(--dim);font-size:14px;}
+.rowdel:hover{color:var(--red);}
+.tablewrap{overflow-x:auto;}
+.addrow{margin-top:10px;background:var(--panel-2);border:1px dashed var(--line);color:var(--muted);padding:6px 12px;border-radius:var(--radius);font-size:12px;}
+.addrow:hover{border-color:var(--amber);color:var(--amber);}
+.capnote{font-family:var(--mono);font-size:10px;color:var(--dim);margin-top:8px;}
+
+.pill{display:inline-block;font-family:var(--mono);font-size:9.5px;padding:2px 7px;border-radius:20px;text-transform:uppercase;letter-spacing:.04em;}
+.pill.low, .pill.done, .pill.good{background:rgba(79,209,197,.14);color:var(--teal);}
+.pill.med, .pill.progress{background:rgba(242,169,59,.15);color:var(--amber);}
+.pill.high, .pill.risk{background:rgba(226,87,76,.15);color:var(--red);}
+
+.checklist{list-style:none;margin:0;padding:0;}
+.checklist li{display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);}
+.checklist li:last-child{border-bottom:none;}
+.checklist input[type=checkbox]{margin-top:2px;width:15px;height:15px;accent-color:var(--amber);}
+.checklist .txt{flex:1;}
+.checklist .txt small{display:block;color:var(--dim);font-size:11px;margin-top:1px;}
+.checklist li.done .txt{color:var(--dim);text-decoration:line-through;}
+
+.btn{background:var(--amber);color:#1A1305;border:none;padding:8px 16px;border-radius:var(--radius);font-weight:600;font-size:12.5px;}
+.btn:hover{background:#ffbe5c;}
+.btn.ghost{background:none;border:1px solid var(--line);color:var(--ink);}
+.btn.ghost:hover{border-color:var(--amber);color:var(--amber);}
+.btn.sm{padding:4px 10px;font-size:11px;}
+
+.kanban{display:grid;gap:12px;}
+.kcol{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius);padding:10px;min-height:80px;}
+.kcol h4{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin-bottom:8px;display:flex;justify-content:space-between;}
+.kcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px;margin-bottom:8px;font-size:12.5px;}
+.kcard .name{font-weight:600;margin-bottom:4px;}
+.kcard .meta{color:var(--dim);font-size:11px;margin-bottom:6px;}
+.kcard .mv{display:flex;gap:5px;flex-wrap:wrap;}
+.kcard button{font-size:10px;background:var(--panel-2);border:1px solid var(--line);color:var(--muted);padding:2px 6px;border-radius:2px;}
+.kcard button:hover{color:var(--amber);border-color:var(--amber);}
+
+.bmc{display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;grid-template-rows:auto auto auto;gap:8px;}
+.bmc .cell{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius);padding:10px;}
+.bmc .cell label.f{color:var(--amber);}
+.bmc textarea{width:100%;min-height:70px;background:transparent;border:none;color:var(--ink);resize:vertical;padding:0;font-size:12.5px;}
+.bmc .keypartners{grid-column:1;grid-row:1/3;}
+.bmc .keyact{grid-column:2;grid-row:1;}
+.bmc .keyres{grid-column:2;grid-row:2;}
+.bmc .value{grid-column:3;grid-row:1/3;}
+.bmc .custrel{grid-column:4;grid-row:1;}
+.bmc .channels{grid-column:4;grid-row:2;}
+.bmc .segments{grid-column:5;grid-row:1/3;}
+.bmc .cost{grid-column:1/4;grid-row:3;}
+.bmc .revenue{grid-column:4/6;grid-row:3;}
+@media (max-width:920px){.bmc{grid-template-columns:1fr 1fr;}
+  .bmc .cell{grid-column:auto !important;grid-row:auto !important;}}
+
+.timeline{position:relative;padding-left:20px;border-left:2px solid var(--line);margin:6px 0 6px 8px;}
+.tlrow{position:relative;padding:6px 0 18px 18px;}
+.tlrow::before{content:"";position:absolute;left:-27px;top:8px;width:9px;height:9px;border-radius:50%;background:var(--amber);border:2px solid var(--bg);}
+.tlrow .d{font-family:var(--mono);font-size:10.5px;color:var(--amber);}
+.tlrow .m{font-weight:600;}
+
+.flowstep{display:flex;gap:16px;align-items:flex-start;padding:16px 0;border-bottom:1px solid var(--line);}
+.flowstep:last-child{border-bottom:none;}
+.flowstep .fnum{font-family:var(--mono);font-size:22px;color:var(--amber-dim);width:34px;flex:0 0 34px;font-weight:700;}
+.flowstep .ft h4{font-size:14.5px;margin-bottom:3px;}
+.flowstep .ft p{color:var(--muted);margin:0;font-size:13px;}
+.flowstep .jump{margin-top:6px;}
+
+.scorebar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;width:90px;display:inline-block;vertical-align:middle;}
+.scorebar i{display:block;height:100%;background:var(--teal);}
+
+.hint-box{background:rgba(242,169,59,.06);border:1px solid var(--amber-dim);border-left:3px solid var(--amber);border-radius:var(--radius);padding:10px 14px;font-size:12.5px;color:var(--muted);margin-bottom:16px;}
+.hint-box b{color:var(--ink);}
+
+.crosslink{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--teal);background:rgba(79,209,197,.08);border:1px solid rgba(79,209,197,.25);padding:5px 10px;border-radius:20px;margin:2px 4px 2px 0;}
+.crosslink:hover{background:rgba(79,209,197,.16);}
+
+.swatch{display:inline-block;width:16px;height:16px;border-radius:3px;vertical-align:middle;margin-right:6px;border:1px solid var(--line);}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--panel);border:1px solid var(--amber);color:var(--ink);padding:10px 16px;border-radius:var(--radius);font-size:12.5px;box-shadow:0 6px 24px rgba(0,0,0,.4);z-index:100;opacity:0;transform:translateY(8px);transition:.25s;font-family:var(--mono);}
+.toast.show{opacity:1;transform:none;}
+
+.footer-note{color:var(--dim);font-size:11.5px;font-family:var(--mono);text-align:center;padding:30px 0 10px;}
+.pretext{white-space:pre-wrap;font-family:var(--mono);font-size:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius);padding:12px;color:var(--muted);max-height:340px;overflow-y:auto;}
+
+.sumgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+@media (max-width:820px){.sumgrid{grid-template-columns:1fr;}}
+.sumcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;display:flex;flex-direction:column;}
+.sumcard h3{font-size:14px;display:flex;align-items:center;gap:8px;}
+.sumcard .num{font-family:var(--mono);color:var(--amber-dim);font-size:11px;}
+.sumcard p.hint{color:var(--muted);font-size:12.5px;margin:4px 0 12px;flex:1;}
+.sumcard .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;}
+.logo-preview{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius);padding:16px;display:flex;justify-content:center;margin-bottom:12px;}
+#logo-canvas{width:220px;height:220px;border-radius:6px;}
+.downloadbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="statusbar" id="statusbar">
+    <div class="brandmark"><div class="dot"></div><div><b>FOUNDER OS</b><br><span>v1.0 · self-serve build</span></div></div>
+    <div class="metric"><div class="lbl">Burn / mo</div><div class="val mono" id="m-burn">$0</div></div>
+    <div class="metric"><div class="lbl">Runway</div><div class="val mono" id="m-runway">–</div></div>
+    <div class="metric"><div class="lbl">Open roles</div><div class="val mono" id="m-hiring">0</div></div>
+    <div class="metric"><div class="lbl">Decisions logged</div><div class="val mono" id="m-decisions">0</div></div>
+    <div class="metric"><div class="lbl">To‑dos, week</div><div class="val mono" id="m-todos">0</div></div>
+    <div class="gatewrap" id="gatewrap"><span class="gname">Idea</span><span class="gname">Validate</span><span class="gname">Brand</span><span class="gname">Launch</span><span class="gname">Team</span></div>
+    <div class="metric" style="border-right:none;display:flex;align-items:center;gap:10px;">
+      <span class="mono" id="auth-user-email" style="font-size:11px;color:var(--dim);"></span>
+      <button id="signout-btn" style="background:var(--panel-2);border:1px solid var(--line);color:var(--muted);border-radius:var(--radius);padding:6px 10px;font-size:11px;">Sign out</button>
+    </div>
+  </header>
+
+  <div class="body">
+    <nav class="sidebar" id="sidebar">
+      <div class="layer-label">Control</div>
+      <button class="navbtn" data-p="dashboard"><span class="num">00</span>Mission Control</button>
+      <div class="layer-label">Foundation layer</div>
+      <button class="navbtn" data-p="ideation"><span class="num">01</span>Ideation & Validation</button>
+      <button class="navbtn" data-p="naming"><span class="num">02</span>Naming & Identity Lab</button>
+      <button class="navbtn" data-p="bizmodel"><span class="num">03</span>Business Model & Planning</button>
+      <div class="layer-label">Survival layer</div>
+      <button class="navbtn" data-p="finance"><span class="num">04</span>Finance & Budgeting</button>
+      <div class="layer-label">Execution layer</div>
+      <button class="navbtn" data-p="product"><span class="num">05</span>Product / Service Build</button>
+      <button class="navbtn" data-p="gtm"><span class="num">06</span>Go‑to‑Market & Growth</button>
+      <div class="layer-label">Team layer</div>
+      <button class="navbtn" data-p="hiring"><span class="num">07</span>Hiring & People Ops</button>
+      <div class="layer-label">Infrastructure layer</div>
+      <button class="navbtn" data-p="ops"><span class="num">08</span>Operations & Legal</button>
+      <div class="layer-label">Reality‑check layer</div>
+      <button class="navbtn" data-p="metrics"><span class="num">09</span>Metrics & Reporting</button>
+      <button class="navbtn" data-p="scale"><span class="num">10</span>Scale‑Up: CRM & Content</button>
+      <div class="layer-label">Outputs</div>
+      <button class="navbtn" data-p="summary"><span class="num">11</span>Business Summary</button>
+      <div class="layer-label">How to run this OS</div>
+      <button class="navbtn" data-p="flow"><span class="num">12</span>Architecture & User Flow</button>
+    </nav>
+
+    <main class="content" id="content">
+      <!-- panels injected by JS -->
+    </main>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   STATE — the single relational core every module reads/writes
+   ============================================================ */
+const state = {
+  todos: [
+    {task:"Finish problem hypothesis canvas", week:true, done:false},
+    {task:"Score top 5 brand names", week:true, done:false},
+    {task:"Send investor update draft", week:false, done:false},
+  ],
+  decisions: [
+    {date:"2026-06-02", decision:"Chose Notion over Airtable for the OS", why:"Cheaper at pre-seed headcount, relations+rollups cover our needs"},
+  ],
+  brandLinks: {logo:"", primary:"#F2A93B", secondary:"#4FD1C5", deck:""},
+
+  // Ideation
+  canvas: {who:"", pain:"", alt:"", why:""},
+  interviews: [
+    {name:"A. Okoye", segment:"SMB importer", date:"2026-06-10", quote:"I lose two weeks just chasing agents for quotes", pain:4, pay:true},
+  ],
+  competitors: [
+    {name:"Competitor A", strength:"Brand trust", weakness:"Slow support", price:"$$", diff:"Faster onboarding"},
+  ],
+  validation: [
+    {g:"Talked to 10+ people who actually have this problem", done:false},
+    {g:"At least 3 said they've paid (or tried to pay) for a workaround", done:false},
+    {g:"You can describe the problem in one sentence a stranger nods at", done:false},
+    {g:"You've found the problem in the wild (forum, review, complaint) unprompted", done:false},
+    {g:"A competitor or substitute exists — proof of budget, not proof you're doomed", done:false},
+    {g:"You know who does NOT have this problem (anti-audience is clear)", done:false},
+    {g:"You've sketched the smallest version that tests the core assumption", done:false},
+    {g:"Someone outside your circle would be disappointed if it disappeared", done:false},
+    {g:"You can name the trigger moment that makes someone go looking for a fix", done:false},
+    {g:"You've written down what would prove you wrong — and you'd act on it", done:false},
+  ],
+
+  // Naming
+  names: [
+    {name:"Edoway", phon:4, domain:true, tm:"Low", intl:"Clear"},
+    {name:"Portway", phon:3, domain:false, tm:"Med", intl:"Clear"},
+  ],
+  brandBrief:{mission:"",vision:"",voice:"",antiAudience:""},
+  moodboard: [{url:"", note:"reference tone"}],
+  logoIter: [{version:"v1", link:"", feedback:""}],
+  colorLock:{primary:"#F2A93B", secondary:"#4FD1C5", font:"", body:""},
+  assets: [{name:"Primary logo (SVG)", type:"Logo", link:"", owner:"Founder"}],
+
+  // Business model
+  bmc:{seg:"",val:"",chan:"",rel:"",rev:"",res:"",act:"",part:"",cost:""},
+  plan:{y1:"",q1:"",m1:""},
+  okrs: [
+    {obj:"Reach first 100 paying users", kr:"100 paid activations", owner:"Founder", progress:10, q:"Q1"},
+  ],
+  risks: [
+    {risk:"Single supplier dependency", like:3, impact:4, mitigation:"Qualify 2 backup suppliers", owner:"Founder"},
+  ],
+
+  // Finance
+  budget: [
+    {item:"Company registration", cat:"Legal", monthly:0, onetime:150},
+    {item:"Notion + tools stack", cat:"Software", monthly:35, onetime:0},
+    {item:"Landing page contractor", cat:"Contractors", monthly:0, onetime:400},
+    {item:"Meta ads test budget", cat:"Marketing", monthly:250, onetime:0},
+    {item:"Buffer / unknowns", cat:"Buffer", monthly:150, onetime:0},
+  ],
+  cash: 4000,
+  capTable: [
+    {holder:"Founder", shares:9000000},
+    {holder:"ESOP pool", shares:1000000},
+  ],
+  pricing:{cost:0, margin:30, value:0, competitor:0},
+  expenses: [{date:"2026-07-01", vendor:"Notion", amount:35, category:"Software", receipt:""}],
+
+  // Product
+  prds: [{feature:"CBM shipping calculator", problem:"Buyers can't estimate freight cost", metric:"% of visitors who complete calc", scope:"Web calculator on landing page", nongoals:"Live carrier rates"}],
+  launch:[
+    {stage:"Alpha", task:"Core flow works for 1 real user", done:false},
+    {stage:"Alpha", task:"You can walk someone through it live without it breaking", done:false},
+    {stage:"Beta", task:"10 outside users complete it unassisted", done:false},
+    {stage:"Beta", task:"Feedback inbox has fewer than 3 blocking bugs", done:false},
+    {stage:"Public", task:"Payment / delivery path tested end to end", done:false},
+    {stage:"Public", task:"Support channel (WhatsApp/email) is live and staffed by you", done:false},
+  ],
+  feedback:[{note:"Calculator doesn't handle kg to CBM edge case", source:"WhatsApp", tag:"Bug", priority:"High", status:"Open"}],
+  bugs:[{issue:"CBM calc rounds down instead of up", severity:"High", status:"Open", assignee:"Founder"}],
+
+  // GTM
+  timeline:[
+    {date:"2026-08-01", milestone:"Landing page live"},
+    {date:"2026-08-15", milestone:"First ad creative batch live"},
+    {date:"2026-09-01", milestone:"Public launch"},
+  ],
+  channels:[{channel:"Facebook/Instagram ads", cost:3, speed:4, fit:4, effort:3}],
+  content:[{date:"2026-08-05", platform:"Instagram", status:"Drafted", asset:""}],
+  salesPipeline:{lead:[{name:"Freight forwarder co-op", value:"$2,000/mo"}],qualified:[],proposal:[],closed:[]},
+  experiments:[{hyp:"Video ads outperform static on cost per lead", exp:"A/B 2 creatives, $50 spend each", result:"", decision:""}],
+
+  // Hiring
+  org:[{role:"Founder", reportsTo:""},{role:"Ops Assistant", reportsTo:"Founder"}],
+  roleBuilder:[{role:"Ops Assistant", d1:"Shadow order intake", d30:"Owns shipment tracking", d90:"Runs weekly ops report unsupervised"}],
+  candidates:{applied:[{name:"C. Umeh", role:"Ops Assistant"}],screened:[{name:"F. Bello", role:"Ops Assistant"}],interviewed:[],offered:[]},
+  questions:[{role:"Ops Assistant", question:"Tell me about a time you caught your own mistake before anyone else did.", value:"Ownership"}],
+  onboarding:[{name:"Template", tasks:[
+    {t:"Accounts & tool access provisioned", done:false},
+    {t:"Culture doc reviewed together", done:false},
+    {t:"First 30/60/90 plan shared", done:false},
+  ]}],
+  culture:{values:"", norms:"", remote:""},
+
+  // Ops & legal
+  entity:{type:"LLC", steps:[
+    {t:"Registered with CAC / local registrar", done:false},
+    {t:"EIN / TIN obtained", done:false},
+    {t:"Business bank account opened", done:false},
+    {t:"Registered agent on file", done:false},
+  ]},
+  contracts:[
+    {name:"NDA", note:"Placeholder — get a lawyer once you're sharing real financials or code.", link:""},
+    {name:"Contractor Agreement", note:"Placeholder — get a lawyer once payments exceed a few hundred dollars/mo.", link:""},
+    {name:"Offer Letter", note:"Placeholder — get a lawyer once you're hiring beyond a casual contractor.", link:""},
+  ],
+  sops:[{name:"How we onboard a new supplier", owner:"Founder", updated:"2026-07-01", notes:""}],
+  techstack:[{tool:"Notion", owner:"Founder", cost:12, renew:"2026-12-01"},{tool:"Selar", owner:"Founder", cost:0, renew:""}],
+  meetings:{sync:"1) Wins this week 2) Blockers 3) Numbers check 4) Next week's one priority", retro:"1) What worked 2) What didn't 3) One change for next cycle"},
+
+  // Metrics
+  northStar:{metric:"", why:""},
+  scorecard:[{week:"2026-07-21", revenue:0, users:0, churn:0, cac:0}],
+  investor:{wins:"", challenges:"", asks:"", snapshot:"", raiseAmount:0, useOfFunds:""},
+
+  // Scale-up CRM
+  crm:[{name:"J. Adeyemi", company:"Adeyemi Freight", stage:"Lead", lastContact:"2026-07-10", next:"Send pricing sheet"}],
+};
+
+/* ============================================================
+   Small utilities
+   ============================================================ */
+const $ = (s,el=document)=>el.querySelector(s);
+const $$ = (s,el=document)=>Array.from(el.querySelectorAll(s));
+function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),1800);}
+function fmt(n){n=Number(n)||0;return '$'+n.toLocaleString('en-US');}
+function uid(){return Math.random().toString(36).slice(2,9);}
+
+/* Generic editable-table builder.
+   cols: [{key,label,type:'text'|'number'|'select'|'checkbox',options,width}]
+   rows: array of plain objects (mutated in place)
+   root: container element */
+function buildTable(root, cols, rows, opts={}){
+  function cell(row, col){
+    const val = row[col.key];
+    if(col.type==='checkbox'){
+      return `<input type="checkbox" data-k="${col.key}" ${val?'checked':''}>`;
+    }
+    if(col.type==='select'){
+      return `<select data-k="${col.key}">${col.options.map(o=>`<option value="${o}" ${o===val?'selected':''}>${o}</option>`).join('')}</select>`;
+    }
+    if(col.type==='readonly'){
+      return `<span class="mono">${col.render?col.render(row):val}</span>`;
+    }
+    const t = col.type==='number' ? 'number':'text';
+    return `<input type="${t}" data-k="${col.key}" value="${val===undefined?'':String(val).replace(/"/g,'&quot;')}">`;
+  }
+  function render(){
+    root.innerHTML = `<div class="tablewrap"><table class="dt"><thead><tr>
+      ${cols.map(c=>`<th>${c.label}</th>`).join('')}<th></th>
+      </tr></thead><tbody>
+      ${rows.map((r,i)=>`<tr data-i="${i}">${cols.map(c=>`<td>${cell(r,c)}</td>`).join('')}<td><button class="rowdel" data-del="${i}">✕</button></td></tr>`).join('')}
+      </tbody></table></div>
+      <button class="addrow" data-add="1">+ Add row</button>
+      ${opts.capacity?`<div class="capnote">SCALES TO ${opts.capacity} ROWS · currently ${rows.length}</div>`:''}`;
+  }
+  root.addEventListener('input', e=>{
+    const tr = e.target.closest('tr'); if(!tr) return;
+    const i = +tr.dataset.i, k = e.target.dataset.k; if(k===undefined) return;
+    const col = cols.find(c=>c.key===k);
+    rows[i][k] = e.target.type==='checkbox' ? e.target.checked : (col && col.type==='number' ? Number(e.target.value) : e.target.value);
+    if(opts.onChange) opts.onChange();
+    if(opts.recompute) render();
+  });
+  root.addEventListener('change', e=>{
+    if(e.target.tagName==='SELECT'){
+      const tr = e.target.closest('tr'); const i=+tr.dataset.i, k=e.target.dataset.k;
+      rows[i][k] = e.target.value; if(opts.onChange) opts.onChange();
+    }
+  });
+  root.addEventListener('click', e=>{
+    if(e.target.dataset.del!==undefined){ rows.splice(+e.target.dataset.del,1); render(); if(opts.onChange) opts.onChange(); }
+    if(e.target.dataset.add!==undefined){ rows.push(opts.blank()); render(); }
+  });
+  render();
+  return {render};
+}
+
+/* ============================================================
+   PANEL: DASHBOARD
+   ============================================================ */
+function renderDashboard(){
+  return `
+  <div class="eyebrow">00 · Mission Control</div>
+  <h1 class="paneltitle">The landing page for your company</h1>
+  <p class="subtitle">Everything below is a live rollup from the other ten modules. If a number here is wrong, fix it at the source module — not here.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Founder's To‑Do <span class="tag">this week</span></h3>
+      <ul class="checklist" id="dash-todos"></ul>
+      <button class="btn ghost sm" id="dash-todo-add" style="margin-top:10px;">+ Add to‑do</button>
+    </div>
+    <div class="card">
+      <h3>Decision Log <span class="tag">why we chose X</span></h3>
+      <div id="dash-decisions"></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Hiring Pipeline</h3>
+      <p class="hint" style="margin-bottom:6px;">Pulled from Hiring & People Ops.</p>
+      <div id="dash-hiring" class="mono" style="font-size:13px;"></div>
+    </div>
+    <div class="card">
+      <h3>Burn Rate & Runway</h3>
+      <p class="hint" style="margin-bottom:6px;">Pulled from Finance & Budgeting.</p>
+      <div id="dash-finance" class="mono" style="font-size:13px;"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Brand Asset Quick‑Links</h3>
+    <div class="grid3">
+      <div class="field"><label class="f">Logo file (link)</label><input id="bl-logo"></div>
+      <div class="field"><label class="f">Pitch deck (link)</label><input id="bl-deck"></div>
+      <div class="field"><label class="f">Color codes</label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="color" id="bl-primary" style="width:40px;padding:2px;">
+          <input type="color" id="bl-secondary" style="width:40px;padding:2px;">
+          <span class="mono" id="bl-hex" style="color:var(--muted);font-size:11px;"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  `;
+}
+function wireDashboard(){
+  const box = $('#dash-todos');
+  function renderTodos(){
+    box.innerHTML = state.todos.map((t,i)=>`
+      <li class="${t.done?'done':''}"><input type="checkbox" data-i="${i}" ${t.done?'checked':''}>
+      <div class="txt">${t.task}<small>${t.week?'This week':'Later'}</small></div></li>`).join('') || '<li class="txt" style="color:var(--dim)">Nothing yet — add your first to‑do.</li>';
+  }
+  renderTodos();
+  box.onclick = e=>{ if(e.target.type==='checkbox'){ state.todos[+e.target.dataset.i].done = e.target.checked; renderTodos(); refreshDashboard(); } };
+  $('#dash-todo-add').onclick = ()=>{ const t = prompt('New to-do:'); if(t){ state.todos.push({task:t, week:true, done:false}); renderTodos(); refreshDashboard(); } };
+
+  function renderDecisions(){
+    $('#dash-decisions').innerHTML = state.decisions.map(d=>`<div style="margin-bottom:8px;"><span class="mono" style="color:var(--dim);font-size:11px;">${d.date}</span><br><b>${d.decision}</b><br><span style="color:var(--muted);font-size:12.5px;">${d.why}</span></div>`).join('') +
+      `<button class="btn ghost sm" id="dec-add" style="margin-top:6px;">+ Log a decision</button>`;
+    $('#dec-add').onclick = ()=>{
+      const decision = prompt('What did you decide?'); if(!decision) return;
+      const why = prompt('Why?') || '';
+      state.decisions.push({date:new Date().toISOString().slice(0,10), decision, why});
+      renderDecisions(); refreshDashboard();
+    };
+  }
+  renderDecisions();
+
+  ['bl-logo','bl-deck'].forEach(id=>{ $('#'+id).value = state.brandLinks[id==='bl-logo'?'logo':'deck']; $('#'+id).oninput = e=>{ state.brandLinks[id==='bl-logo'?'logo':'deck'] = e.target.value; }; });
+  $('#bl-primary').value = state.brandLinks.primary; $('#bl-secondary').value = state.brandLinks.secondary;
+  function paintHex(){ $('#bl-hex').textContent = state.brandLinks.primary+' / '+state.brandLinks.secondary; }
+  paintHex();
+  $('#bl-primary').oninput = e=>{ state.brandLinks.primary=e.target.value; paintHex(); };
+  $('#bl-secondary').oninput = e=>{ state.brandLinks.secondary=e.target.value; paintHex(); };
+
+  refreshDashboardPanel();
+}
+function refreshDashboardPanel(){
+  // hiring rollup
+  const c = state.candidates;
+  const total = c.applied.length+c.screened.length+c.interviewed.length+c.offered.length;
+  const hd = $('#dash-hiring');
+  if(hd) hd.innerHTML = `Applied ${c.applied.length} → Screened ${c.screened.length} → Interviewed ${c.interviewed.length} → Offered ${c.offered.length}<br><span style="color:var(--dim)">${total} of 12‑seat pipeline capacity in motion</span>`;
+  // finance rollup
+  const monthly = state.budget.reduce((s,b)=>s+(Number(b.monthly)||0),0);
+  const runwayMonths = monthly>0 ? (state.cash/monthly) : Infinity;
+  const fd = $('#dash-finance');
+  if(fd) fd.innerHTML = `Monthly burn: <b>${fmt(monthly)}</b><br>Cash on hand: <b>${fmt(state.cash)}</b><br>Runway: <b>${isFinite(runwayMonths)?runwayMonths.toFixed(1)+' months':'∞ (no recurring burn logged)'}</b>`;
+}
+
+/* ============================================================
+   PANEL: IDEATION & VALIDATION
+   ============================================================ */
+function renderIdeation(){
+  return `
+  <div class="eyebrow">01 · Foundation layer</div>
+  <h1 class="paneltitle">Ideation & Validation Engine</h1>
+  <p class="subtitle">Before building anything. The job of this module is to make it cheap to be wrong early.</p>
+
+  <div class="card">
+    <h3>Problem Hypothesis Canvas <span class="tag">who hurts most?</span></h3>
+    <div class="grid2">
+      <div class="field"><label class="f">Who hurts most</label><textarea id="c-who"></textarea></div>
+      <div class="field"><label class="f">What's the pain, specifically</label><textarea id="c-pain"></textarea></div>
+      <div class="field"><label class="f">Current alternative / workaround</label><textarea id="c-alt"></textarea></div>
+      <div class="field"><label class="f">Why now</label><textarea id="c-why"></textarea></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Customer Discovery Database <span class="tag">interview tracker</span></h3>
+    <p class="hint">10 prompt scripts to run in every interview — expand as needed, don't skip to pitching.</p>
+    <details style="margin-bottom:14px;">
+      <summary style="cursor:pointer;color:var(--teal);font-size:12.5px;">Open the 10 interview prompt scripts</summary>
+      <ol style="color:var(--muted);font-size:12.5px;padding-left:18px;line-height:1.8;">
+        <li>Walk me through the last time you dealt with [the problem].</li>
+        <li>What did you try first? What made you give up on it?</li>
+        <li>What are you doing today instead — even if it's a bad fix?</li>
+        <li>How much time or money does this cost you in a normal month?</li>
+        <li>Who else deals with this on your team, and do they feel it the same way?</li>
+        <li>Have you ever paid for something to solve this? What, and why that one?</li>
+        <li>What would have to be true for you to stop caring about this problem?</li>
+        <li>If I built the obvious fix tomorrow, what would stop you from using it?</li>
+        <li>Tell me about the worst version of this problem you've had.</li>
+        <li>Who do you know who has this way worse than you do?</li>
+      </ol>
+    </details>
+    <div id="tbl-interviews"></div>
+  </div>
+
+  <div class="card">
+    <h3>Competitive Landscape Map <span class="tag">gallery view</span></h3>
+    <div id="tbl-competitors"></div>
+  </div>
+
+  <div class="card">
+    <h3>Validation Checklist <span class="tag">10 gates before spending money</span></h3>
+    <ul class="checklist" id="validation-list"></ul>
+  </div>
+  `;
+}
+function wireIdeation(){
+  const c = state.canvas;
+  ['who','pain','alt','why'].forEach(k=>{ const el=$('#c-'+k); el.value=c[k]; el.oninput=e=>c[k]=e.target.value; });
+
+  buildTable($('#tbl-interviews'),
+    [{key:'name',label:'Name'},{key:'segment',label:'Segment'},{key:'date',label:'Date'},
+     {key:'quote',label:'Key quote'},{key:'pain',label:'Pain 1–5',type:'number'},{key:'pay',label:'Would pay?',type:'checkbox'}],
+    state.interviews, {blank:()=>({name:'',segment:'',date:'',quote:'',pain:3,pay:false}), onChange:refreshDashboardPanel});
+
+  buildTable($('#tbl-competitors'),
+    [{key:'name',label:'Competitor'},{key:'strength',label:'Strength'},{key:'weakness',label:'Weakness'},
+     {key:'price',label:'Price tier'},{key:'diff',label:'Our differentiation'}],
+    state.competitors, {blank:()=>({name:'',strength:'',weakness:'',price:'',diff:''})});
+
+  renderValidation();
+}
+function renderValidation(){
+  const box = $('#validation-list');
+  box.innerHTML = state.validation.map((v,i)=>`<li class="${v.done?'done':''}"><input type="checkbox" data-i="${i}" ${v.done?'checked':''}><div class="txt">${v.g}</div></li>`).join('');
+  box.onclick = e=>{ if(e.target.type==='checkbox'){ state.validation[+e.target.dataset.i].done = e.target.checked; renderValidation(); refreshGates(); } };
+}
+
+/* ============================================================
+   PANEL: NAMING & IDENTITY LAB
+   ============================================================ */
+function nameScore(r){
+  const tmScore = r.tm==='Low'?3:r.tm==='Med'?2:1;
+  const domainScore = r.domain?3:0;
+  const intlScore = r.intl==='Clear'?3:r.intl==='Caution'?1.5:0;
+  return (Number(r.phon)||0) + domainScore + tmScore + intlScore; // max 14
+}
+function renderNaming(){
+  return `
+  <div class="eyebrow">01 · Foundation layer</div>
+  <h1 class="paneltitle">Naming & Identity Lab</h1>
+  <p class="subtitle">The "Brand from Zero" module. Run every candidate through the same rubric so the scores are actually comparable.</p>
+
+  <div class="card">
+    <h3>Naming Wizard <span class="tag">phonetics · domain · trademark · meaning</span></h3>
+    <p class="hint">Score each candidate 1–5 on phonetics, flag domain availability, trademark risk, and international meaning. Highest total wins — but read the flags too.</p>
+    <div id="tbl-names"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Brand Strategy Brief</h3>
+      <div class="field"><label class="f">Mission</label><textarea id="bb-mission"></textarea></div>
+      <div class="field"><label class="f">Vision</label><textarea id="bb-vision"></textarea></div>
+      <div class="field"><label class="f">Voice / tone</label><textarea id="bb-voice" placeholder="e.g. direct, warm, a little blunt"></textarea></div>
+      <div class="field"><label class="f">Anti‑audience — who this is NOT for</label><textarea id="bb-anti"></textarea></div>
+    </div>
+    <div class="card">
+      <h3>Visual Identity Hub</h3>
+      <div class="field"><label class="f">Color lock‑in — primary / secondary</label>
+        <div style="display:flex;gap:8px;"><input type="color" id="vi-primary" style="width:44px;"><input type="color" id="vi-secondary" style="width:44px;"></div>
+      </div>
+      <div class="field"><label class="f">Display font</label><input id="vi-font" placeholder="e.g. Space Grotesk"></div>
+      <div class="field"><label class="f">Body font</label><input id="vi-body" placeholder="e.g. Inter"></div>
+      <label class="f" style="margin-top:6px;">Mood board references</label>
+      <div id="tbl-mood"></div>
+      <label class="f" style="margin-top:14px;">Logo iterations & feedback</label>
+      <div id="tbl-logoiter"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Asset Library <span class="tag">organized file links</span></h3>
+    <div id="tbl-assets"></div>
+  </div>
+  `;
+}
+function wireNaming(){
+  buildTable($('#tbl-names'),
+    [{key:'name',label:'Candidate'},
+     {key:'phon',label:'Phonetics 1–5',type:'number'},
+     {key:'domain',label:'Domain free',type:'checkbox'},
+     {key:'tm',label:'Trademark risk',type:'select',options:['Low','Med','High']},
+     {key:'intl',label:'Intl. meaning',type:'select',options:['Clear','Caution','Red flag']},
+     {key:'score',label:'Score /14',type:'readonly',render:nameScore}],
+    state.names, {blank:()=>({name:'',phon:3,domain:false,tm:'Low',intl:'Clear'}), recompute:true, capacity:50, onChange:refreshGates});
+
+  const bb = state.brandBrief;
+  ['mission','vision','voice','anti'].forEach(k=>{ const key = k==='anti'?'antiAudience':k; const el=$('#bb-'+k); el.value=bb[key]; el.oninput=e=>bb[key]=e.target.value; });
+
+  const cl = state.colorLock;
+  $('#vi-primary').value=cl.primary; $('#vi-secondary').value=cl.secondary; $('#vi-font').value=cl.font; $('#vi-body').value=cl.body;
+  $('#vi-primary').oninput=e=>cl.primary=e.target.value; $('#vi-secondary').oninput=e=>cl.secondary=e.target.value;
+  $('#vi-font').oninput=e=>cl.font=e.target.value; $('#vi-body').oninput=e=>cl.body=e.target.value;
+
+  buildTable($('#tbl-mood'), [{key:'url',label:'Reference link'},{key:'note',label:'Why it fits'}], state.moodboard, {blank:()=>({url:'',note:''})});
+  buildTable($('#tbl-logoiter'), [{key:'version',label:'Version'},{key:'link',label:'Link'},{key:'feedback',label:'Feedback'}], state.logoIter, {blank:()=>({version:'v'+(state.logoIter.length+1),link:'',feedback:''})});
+  buildTable($('#tbl-assets'), [{key:'name',label:'Asset'},{key:'type',label:'Type'},{key:'link',label:'Link'},{key:'owner',label:'Owner'}], state.assets, {blank:()=>({name:'',type:'',link:'',owner:'Founder'})});
+}
+
+/* ============================================================
+   PANEL: BUSINESS MODEL & PLANNING
+   ============================================================ */
+function renderBizmodel(){
+  return `
+  <div class="eyebrow">01 · Foundation layer</div>
+  <h1 class="paneltitle">Business Model & Planning</h1>
+  <p class="subtitle">The thinking layer — one canvas, one plan, one tracker, one register.</p>
+
+  <div class="card">
+    <h3>Business Model Canvas</h3>
+    <div class="bmc">
+      <div class="cell keypartners"><label class="f">Key partners</label><textarea id="bmc-part"></textarea></div>
+      <div class="cell keyact"><label class="f">Key activities</label><textarea id="bmc-act"></textarea></div>
+      <div class="cell keyres"><label class="f">Key resources</label><textarea id="bmc-res"></textarea></div>
+      <div class="cell value"><label class="f">Value proposition</label><textarea id="bmc-val"></textarea></div>
+      <div class="cell custrel"><label class="f">Customer relationships</label><textarea id="bmc-rel"></textarea></div>
+      <div class="cell channels"><label class="f">Channels</label><textarea id="bmc-chan"></textarea></div>
+      <div class="cell segments"><label class="f">Customer segments</label><textarea id="bmc-seg"></textarea></div>
+      <div class="cell cost"><label class="f">Cost structure</label><textarea id="bmc-cost"></textarea></div>
+      <div class="cell revenue"><label class="f">Revenue streams</label><textarea id="bmc-rev"></textarea></div>
+    </div>
+  </div>
+
+  <div class="grid3">
+    <div class="card"><h3>Strategic Plan</h3>
+      <div class="field"><label class="f">Year 1 objective</label><textarea id="pl-y1"></textarea></div>
+      <div class="field"><label class="f">Q1 objective</label><textarea id="pl-q1"></textarea></div>
+      <div class="field"><label class="f">Month 1 objective</label><textarea id="pl-m1"></textarea></div>
+    </div>
+    <div class="card" style="grid-column:span 2;"><h3>OKR Tracker</h3><div id="tbl-okrs"></div></div>
+  </div>
+
+  <div class="card"><h3>Risk Register <span class="tag">what could kill us?</span></h3><div id="tbl-risks"></div></div>
+  `;
+}
+function wireBizmodel(){
+  const b = state.bmc;
+  [['part','part'],['act','act'],['res','res'],['val','val'],['rel','rel'],['chan','chan'],['seg','seg'],['cost','cost'],['rev','rev']].forEach(([k])=>{
+    const el = $('#bmc-'+k); el.value=b[k]; el.oninput=e=>b[k]=e.target.value;
+  });
+  const p = state.plan; ['y1','q1','m1'].forEach(k=>{ const el=$('#pl-'+k); el.value=p[k]; el.oninput=e=>p[k]=e.target.value; });
+
+  buildTable($('#tbl-okrs'),
+    [{key:'obj',label:'Objective'},{key:'kr',label:'Key result'},{key:'owner',label:'Owner'},
+     {key:'progress',label:'Progress %',type:'number'},{key:'q',label:'Quarter',type:'select',options:['Q1','Q2','Q3','Q4']}],
+    state.okrs, {blank:()=>({obj:'',kr:'',owner:'Founder',progress:0,q:'Q1'})});
+
+  buildTable($('#tbl-risks'),
+    [{key:'risk',label:'Risk'},{key:'like',label:'Likelihood 1–5',type:'number'},{key:'impact',label:'Impact 1–5',type:'number'},
+     {key:'score',label:'Score',type:'readonly',render:r=>(r.like||0)*(r.impact||0)},
+     {key:'mitigation',label:'Mitigation'},{key:'owner',label:'Owner'}],
+    state.risks, {blank:()=>({risk:'',like:1,impact:1,mitigation:'',owner:'Founder'}), recompute:true});
+}
+
+/* ============================================================
+   PANEL: FINANCE & BUDGETING
+   ============================================================ */
+function renderFinance(){
+  return `
+  <div class="eyebrow">02 · Survival layer</div>
+  <h1 class="paneltitle">Finance & Budgeting Hub</h1>
+  <p class="subtitle">This module feeds Mission Control's burn & runway numbers directly — everything else is downstream of what you enter here.</p>
+
+  <div class="card">
+    <h3>Startup Budget <span class="tag">legal · software · contractors · marketing · buffer</span></h3>
+    <div id="tbl-budget"></div>
+    <div class="mono" id="budget-total" style="margin-top:10px;color:var(--amber);font-size:13px;"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Runway Calculator</h3>
+      <div class="field"><label class="f">Cash on hand</label><input type="number" id="rc-cash"></div>
+      <p class="hint" style="margin-top:8px;">Monthly burn is pulled automatically from the budget table above.</p>
+      <div class="mono" id="rc-result" style="font-size:20px;color:var(--teal);margin-top:8px;"></div>
+    </div>
+    <div class="card">
+      <h3>Cap Table <span class="tag">simple pre‑seed</span></h3>
+      <div id="tbl-captable"></div>
+      <div class="mono" id="cap-total" style="margin-top:10px;color:var(--muted);font-size:12px;"></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Pricing Strategy Worksheet</h3>
+      <div class="grid3">
+        <div class="field"><label class="f">Cost‑plus: unit cost</label><input type="number" id="pr-cost"></div>
+        <div class="field"><label class="f">Margin %</label><input type="number" id="pr-margin"></div>
+        <div class="field"><label class="f">Value‑based: perceived value</label><input type="number" id="pr-value"></div>
+      </div>
+      <div class="field"><label class="f">Competitive: competitor price</label><input type="number" id="pr-comp"></div>
+      <div class="mono" id="pr-out" style="color:var(--amber);"></div>
+    </div>
+    <div class="card">
+      <h3>Expense Tracker</h3>
+      <div id="tbl-expenses"></div>
+    </div>
+  </div>
+  `;
+}
+function wireFinance(){
+  buildTable($('#tbl-budget'),
+    [{key:'item',label:'Line item'},{key:'cat',label:'Category',type:'select',options:['Legal','Software','Contractors','Marketing','Buffer','Other']},
+     {key:'monthly',label:'Monthly',type:'number'},{key:'onetime',label:'One‑time',type:'number'}],
+    state.budget, {blank:()=>({item:'',cat:'Other',monthly:0,onetime:0}), capacity:24, onChange:()=>{ renderBudgetTotal(); refreshDashboardPanel(); }});
+  renderBudgetTotal();
+
+  $('#rc-cash').value = state.cash;
+  $('#rc-cash').oninput = e=>{ state.cash = Number(e.target.value)||0; renderRunway(); refreshDashboardPanel(); };
+  renderRunway();
+
+  buildTable($('#tbl-captable'), [{key:'holder',label:'Holder'},{key:'shares',label:'Shares',type:'number'}], state.capTable, {blank:()=>({holder:'',shares:0}), onChange:renderCapTotal, recompute:false});
+  renderCapTotal();
+
+  const pr = state.pricing;
+  $('#pr-cost').value=pr.cost; $('#pr-margin').value=pr.margin; $('#pr-value').value=pr.value; $('#pr-comp').value=pr.competitor;
+  ['pr-cost','pr-margin','pr-value','pr-comp'].forEach(id=>{
+    $('#'+id).oninput = e=>{
+      const map={'pr-cost':'cost','pr-margin':'margin','pr-value':'value','pr-comp':'competitor'};
+      pr[map[id]] = Number(e.target.value)||0; renderPricing();
+    };
+  });
+  renderPricing();
+
+  buildTable($('#tbl-expenses'), [{key:'date',label:'Date'},{key:'vendor',label:'Vendor'},{key:'amount',label:'Amount',type:'number'},{key:'category',label:'Category'},{key:'receipt',label:'Receipt link'}], state.expenses, {blank:()=>({date:'',vendor:'',amount:0,category:'',receipt:''})});
+}
+function renderBudgetTotal(){
+  const monthly = state.budget.reduce((s,b)=>s+(Number(b.monthly)||0),0);
+  const onetime = state.budget.reduce((s,b)=>s+(Number(b.onetime)||0),0);
+  $('#budget-total').textContent = `Monthly total: ${fmt(monthly)}   ·   One-time total: ${fmt(onetime)}`;
+  renderRunway();
+}
+function renderRunway(){
+  const el = $('#rc-result'); if(!el) return;
+  const monthly = state.budget.reduce((s,b)=>s+(Number(b.monthly)||0),0);
+  if(monthly<=0){ el.textContent = 'No recurring burn logged.'; return; }
+  el.textContent = (state.cash/monthly).toFixed(1) + ' months of runway';
+}
+function renderCapTotal(){
+  const total = state.capTable.reduce((s,c)=>s+(Number(c.shares)||0),0);
+  $('#cap-total').textContent = state.capTable.map(c=>`${c.holder}: ${total?((c.shares/total*100).toFixed(1)):'0'}%`).join('   ·   ');
+}
+function renderPricing(){
+  const pr = state.pricing;
+  const costPlus = pr.cost * (1+pr.margin/100);
+  const suggested = [costPlus, pr.value, pr.competitor].filter(n=>n>0);
+  const avg = suggested.length ? suggested.reduce((a,b)=>a+b,0)/suggested.length : 0;
+  $('#pr-out').textContent = `Cost-plus price: ${fmt(costPlus)}   ·   Blended suggestion: ${fmt(avg)}`;
+}
+
+/* ============================================================
+   PANEL: PRODUCT / SERVICE BUILD
+   ============================================================ */
+function renderProduct(){
+  return `
+  <div class="eyebrow">03 · Execution layer</div>
+  <h1 class="paneltitle">Product / Service Build</h1>
+  <p class="subtitle">The execution layer — one PRD format, reused for every feature.</p>
+
+  <div class="card">
+    <h3>PRD Template <span class="tag">reusable</span></h3>
+    <div id="prd-list"></div>
+    <button class="btn ghost sm" id="prd-add" style="margin-top:10px;">+ New PRD</button>
+  </div>
+
+  <div class="card">
+    <h3>Launch Checklist <span class="tag">alpha → beta → public</span></h3>
+    <div id="launch-list"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card"><h3>User Feedback Inbox</h3><div id="tbl-feedback"></div></div>
+    <div class="card"><h3>Bug / Issue Tracker</h3><div id="tbl-bugs"></div></div>
+  </div>
+  `;
+}
+function wireProduct(){
+  function renderPRDs(){
+    $('#prd-list').innerHTML = state.prds.map((p,i)=>`
+      <div class="card" style="background:var(--panel-2);margin-bottom:10px;">
+        <div class="grid2">
+          <div class="field"><label class="f">Feature</label><input data-i="${i}" data-k="feature" value="${p.feature}"></div>
+          <div class="field"><label class="f">Success metric</label><input data-i="${i}" data-k="metric" value="${p.metric}"></div>
+          <div class="field"><label class="f">Problem</label><textarea data-i="${i}" data-k="problem">${p.problem}</textarea></div>
+          <div class="field"><label class="f">Scope</label><textarea data-i="${i}" data-k="scope">${p.scope}</textarea></div>
+          <div class="field"><label class="f">Non‑goals</label><textarea data-i="${i}" data-k="nongoals">${p.nongoals}</textarea></div>
+        </div>
+        <button class="btn ghost sm" data-del-prd="${i}">Remove PRD</button>
+      </div>`).join('');
+  }
+  renderPRDs();
+  $('#prd-list').addEventListener('input', e=>{ const i=+e.target.dataset.i, k=e.target.dataset.k; if(k) state.prds[i][k]=e.target.value; });
+  $('#prd-list').addEventListener('click', e=>{ if(e.target.dataset.delPrd!==undefined){ state.prds.splice(+e.target.dataset.delPrd,1); renderPRDs(); } });
+  $('#prd-add').onclick = ()=>{ state.prds.push({feature:'New feature',problem:'',metric:'',scope:'',nongoals:''}); renderPRDs(); };
+
+  function renderLaunch(){
+    const stages = ['Alpha','Beta','Public'];
+    $('#launch-list').innerHTML = stages.map(s=>`
+      <div style="margin-bottom:12px;"><div class="mono" style="color:var(--dim);font-size:10.5px;text-transform:uppercase;margin-bottom:4px;">${s}</div>
+      <ul class="checklist">${state.launch.filter(l=>l.stage===s).map(l=>{const gi=state.launch.indexOf(l);return `<li class="${l.done?'done':''}"><input type="checkbox" data-i="${gi}" ${l.done?'checked':''}><div class="txt">${l.task}</div></li>`;}).join('')}</ul></div>`).join('');
+  }
+  renderLaunch();
+  $('#launch-list').addEventListener('click', e=>{ if(e.target.type==='checkbox'){ state.launch[+e.target.dataset.i].done=e.target.checked; renderLaunch(); refreshGates(); } });
+
+  buildTable($('#tbl-feedback'), [{key:'note',label:'Feedback'},{key:'source',label:'Source'},{key:'tag',label:'Tag',type:'select',options:['Bug','Idea','Praise']},{key:'priority',label:'Priority',type:'select',options:['Low','Med','High']},{key:'status',label:'Status',type:'select',options:['Open','In progress','Done']}], state.feedback, {blank:()=>({note:'',source:'',tag:'Idea',priority:'Med',status:'Open'})});
+
+  buildTable($('#tbl-bugs'), [{key:'issue',label:'Issue'},{key:'severity',label:'Severity',type:'select',options:['Low','Med','High']},{key:'status',label:'Status',type:'select',options:['Open','In progress','Fixed']},{key:'assignee',label:'Assignee'}], state.bugs, {blank:()=>({issue:'',severity:'Med',status:'Open',assignee:'Founder'})});
+}
+
+/* ============================================================
+   PANEL: GO-TO-MARKET & GROWTH
+   ============================================================ */
+function renderGtm(){
+  return `
+  <div class="eyebrow">03 · Execution layer</div>
+  <h1 class="paneltitle">Go‑to‑Market & Growth</h1>
+  <p class="subtitle">The traction layer.</p>
+
+  <div class="card">
+    <h3>Launch Timeline</h3>
+    <div id="tl-list" class="timeline"></div>
+    <button class="btn ghost sm" id="tl-add">+ Add milestone</button>
+  </div>
+
+  <div class="card"><h3>Marketing Channel Matrix</h3><div id="tbl-channels"></div></div>
+
+  <div class="grid2">
+    <div class="card"><h3>Content Calendar</h3><div id="tbl-content"></div></div>
+    <div class="card"><h3>Growth Experiment Log</h3><div id="tbl-experiments"></div></div>
+  </div>
+
+  <div class="card">
+    <h3>Sales Pipeline <span class="tag">B2B lead → close</span></h3>
+    <div class="kanban" style="grid-template-columns:repeat(4,1fr);">
+      ${['lead','qualified','proposal','closed'].map(s=>`
+      <div class="kcol" data-stage="${s}"><h4>${s} <span id="cnt-${s}"></span></h4><div id="sp-${s}"></div>
+      <button class="btn ghost sm" data-addlead="${s}">+ Add</button></div>`).join('')}
+    </div>
+  </div>
+  `;
+}
+function wireGtm(){
+  function renderTl(){
+    const sorted = [...state.timeline].sort((a,b)=>a.date.localeCompare(b.date));
+    $('#tl-list').innerHTML = sorted.map(t=>`<div class="tlrow"><div class="d">${t.date}</div><div class="m">${t.milestone}</div></div>`).join('') || '<p style="color:var(--dim)">No milestones yet.</p>';
+  }
+  renderTl();
+  $('#tl-add').onclick = ()=>{ const date=prompt('Date (YYYY-MM-DD):'); if(!date) return; const milestone=prompt('Milestone:')||''; state.timeline.push({date,milestone}); renderTl(); };
+
+  buildTable($('#tbl-channels'),
+    [{key:'channel',label:'Channel'},{key:'cost',label:'Cost 1–5',type:'number'},{key:'speed',label:'Speed 1–5',type:'number'},
+     {key:'fit',label:'Audience fit 1–5',type:'number'},{key:'effort',label:'Effort 1–5',type:'number'},
+     {key:'priority',label:'Priority',type:'readonly',render:r=>(((r.speed||0)+(r.fit||0))-((r.cost||0)+(r.effort||0)))}],
+    state.channels, {blank:()=>({channel:'',cost:3,speed:3,fit:3,effort:3}), recompute:true});
+
+  buildTable($('#tbl-content'), [{key:'date',label:'Date'},{key:'platform',label:'Platform'},{key:'status',label:'Status',type:'select',options:['Idea','Drafted','Scheduled','Posted']},{key:'asset',label:'Asset link'}], state.content, {blank:()=>({date:'',platform:'',status:'Idea',asset:''})});
+
+  buildTable($('#tbl-experiments'), [{key:'hyp',label:'Hypothesis'},{key:'exp',label:'Experiment'},{key:'result',label:'Result'},{key:'decision',label:'Decision',type:'select',options:['','Keep','Kill','Iterate']}], state.experiments, {blank:()=>({hyp:'',exp:'',result:'',decision:''})});
+
+  function renderPipeline(){
+    ['lead','qualified','proposal','closed'].forEach(s=>{
+      $('#cnt-'+s).textContent = state.salesPipeline[s].length;
+      $('#sp-'+s).innerHTML = state.salesPipeline[s].map((c,i)=>`
+        <div class="kcard"><div class="name">${c.name}</div><div class="meta">${c.value||''}</div>
+        <div class="mv">${moveButtons(s,i,['lead','qualified','proposal','closed'])}</div></div>`).join('');
+    });
+  }
+  function moveButtons(stage,i,order){
+    const idx = order.indexOf(stage); let btns='';
+    if(idx>0) btns += `<button data-mv="${stage}:${i}:${order[idx-1]}">← ${order[idx-1]}</button>`;
+    if(idx<order.length-1) btns += `<button data-mv="${stage}:${i}:${order[idx+1]}">${order[idx+1]} →</button>`;
+    return btns;
+  }
+  renderPipeline();
+  document.body.addEventListener('click', function pipelineHandler(e){
+    if(e.target.dataset.mv){
+      const [from,i,to] = e.target.dataset.mv.split(':');
+      const item = state.salesPipeline[from].splice(+i,1)[0];
+      state.salesPipeline[to].push(item);
+      renderPipeline();
+    }
+    if(e.target.dataset.addlead){
+      const s = e.target.dataset.addlead; const name = prompt('Lead / company name:'); if(!name) return;
+      const value = prompt('Deal value (optional):')||'';
+      state.salesPipeline[s].push({name,value}); renderPipeline();
+    }
+  });
+}
+
+/* ============================================================
+   PANEL: HIRING & PEOPLE OPS
+   ============================================================ */
+function renderHiring(){
+  return `
+  <div class="eyebrow">04 · Team layer</div>
+  <h1 class="paneltitle">Hiring & People Ops</h1>
+  <p class="subtitle">The team layer. Built to evolve — start with a founder and one box, not an org chart for fifty.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Org Chart Builder</h3>
+      <div id="org-tree"></div>
+      <button class="btn ghost sm" id="org-add">+ Add role</button>
+    </div>
+    <div class="card">
+      <h3>Role Builder Template <span class="tag">Day 1 / 30 / 90</span></h3>
+      <div id="tbl-roles"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Candidate Pipeline <span class="tag">ATS style — 12‑seat capacity</span></h3>
+    <div class="kanban" style="grid-template-columns:repeat(4,1fr);">
+      ${['applied','screened','interviewed','offered'].map(s=>`
+      <div class="kcol"><h4>${s} <span id="hc-${s}"></span></h4><div id="hp-${s}"></div>
+      <button class="btn ghost sm" data-haddlead="${s}">+ Add</button></div>`).join('')}
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card"><h3>Interview Question Bank</h3><div id="tbl-questions"></div></div>
+    <div class="card">
+      <h3>Onboarding Checklist</h3>
+      <div id="onboard-list"></div>
+      <button class="btn ghost sm" id="onboard-dup" style="margin-top:8px;">Duplicate for new hire</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Culture Doc Template</h3>
+    <div class="grid3">
+      <div class="field"><label class="f">Values</label><textarea id="cu-values"></textarea></div>
+      <div class="field"><label class="f">Communication norms</label><textarea id="cu-norms"></textarea></div>
+      <div class="field"><label class="f">Remote work rules</label><textarea id="cu-remote"></textarea></div>
+    </div>
+  </div>
+  `;
+}
+function wireHiring(){
+  function renderOrg(){
+    $('#org-tree').innerHTML = state.org.map((o,i)=>{
+      const depth = o.reportsTo ? 1 : 0;
+      return `<div style="margin-left:${depth*22}px;padding:6px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;">
+        <span>${depth?'↳ ':''}<b>${o.role}</b>${o.reportsTo?`<span style="color:var(--dim)"> → reports to ${o.reportsTo}</span>`:''}</span>
+        <button class="rowdel" data-orgdel="${i}">✕</button></div>`;
+    }).join('');
+  }
+  renderOrg();
+  $('#org-tree').addEventListener('click', e=>{ if(e.target.dataset.orgdel!==undefined){ state.org.splice(+e.target.dataset.orgdel,1); renderOrg(); } });
+  $('#org-add').onclick = ()=>{ const role=prompt('New role title:'); if(!role) return; const reportsTo=prompt('Reports to (leave blank for founder-level):')||''; state.org.push({role,reportsTo}); renderOrg(); };
+
+  buildTable($('#tbl-roles'), [{key:'role',label:'Role'},{key:'d1',label:'Day 1'},{key:'d30',label:'Day 30'},{key:'d90',label:'Day 90'}], state.roleBuilder, {blank:()=>({role:'',d1:'',d30:'',d90:''})});
+
+  function renderCandPipeline(){
+    ['applied','screened','interviewed','offered'].forEach(s=>{
+      $('#hc-'+s).textContent = state.candidates[s].length;
+      $('#hp-'+s).innerHTML = state.candidates[s].map((c,i)=>`
+        <div class="kcard"><div class="name">${c.name}</div><div class="meta">${c.role||''}</div>
+        <div class="mv">${hmoveButtons(s,i,['applied','screened','interviewed','offered'])}</div></div>`).join('');
+    });
+  }
+  function hmoveButtons(stage,i,order){
+    const idx=order.indexOf(stage); let b='';
+    if(idx>0) b+=`<button data-hmv="${stage}:${i}:${order[idx-1]}">← ${order[idx-1]}</button>`;
+    if(idx<order.length-1) b+=`<button data-hmv="${stage}:${i}:${order[idx+1]}">${order[idx+1]} →</button>`;
+    return b;
+  }
+  renderCandPipeline();
+  document.body.addEventListener('click', e=>{
+    if(e.target.dataset.hmv){
+      const [from,i,to]=e.target.dataset.hmv.split(':');
+      const item = state.candidates[from].splice(+i,1)[0];
+      state.candidates[to].push(item);
+      renderCandPipeline(); refreshDashboardPanel(); refreshGates();
+    }
+    if(e.target.dataset.haddlead){
+      const s=e.target.dataset.haddlead; const name=prompt('Candidate name:'); if(!name) return;
+      const role=prompt('Role applied for:')||''; state.candidates[s].push({name,role});
+      renderCandPipeline(); refreshDashboardPanel();
+    }
+  });
+
+  buildTable($('#tbl-questions'), [{key:'role',label:'Role type'},{key:'question',label:'Question'},{key:'value',label:'Value alignment'}], state.questions, {blank:()=>({role:'',question:'',value:''})});
+
+  function renderOnboard(){
+    $('#onboard-list').innerHTML = state.onboarding.map((o,oi)=>`
+      <div style="margin-bottom:10px;"><div class="mono" style="color:var(--dim);font-size:11px;margin-bottom:4px;">${o.name}</div>
+      <ul class="checklist">${o.tasks.map((t,ti)=>`<li class="${t.done?'done':''}"><input type="checkbox" data-oi="${oi}" data-ti="${ti}" ${t.done?'checked':''}><div class="txt">${t.t}</div></li>`).join('')}</ul></div>`).join('');
+  }
+  renderOnboard();
+  $('#onboard-list').addEventListener('click', e=>{ if(e.target.type==='checkbox'){ state.onboarding[+e.target.dataset.oi].tasks[+e.target.dataset.ti].done = e.target.checked; renderOnboard(); } });
+  $('#onboard-dup').onclick = ()=>{ const name = prompt('New hire name:')||('Hire '+(state.onboarding.length+1)); const base = state.onboarding[0]; state.onboarding.push({name, tasks: base.tasks.map(t=>({t:t.t, done:false}))}); renderOnboard(); };
+
+  const cu = state.culture; $('#cu-values').value=cu.values; $('#cu-norms').value=cu.norms; $('#cu-remote').value=cu.remote;
+  $('#cu-values').oninput=e=>cu.values=e.target.value; $('#cu-norms').oninput=e=>cu.norms=e.target.value; $('#cu-remote').oninput=e=>cu.remote=e.target.value;
+}
+
+/* ============================================================
+   PANEL: OPERATIONS & LEGAL
+   ============================================================ */
+function renderOps(){
+  return `
+  <div class="eyebrow">05 · Infrastructure layer</div>
+  <h1 class="paneltitle">Operations & Legal</h1>
+  <p class="subtitle">The infrastructure layer — boring, and the reason nothing falls over later.</p>
+
+  <div class="card">
+    <h3>Entity Setup Checklist</h3>
+    <div class="field" style="max-width:220px;"><label class="f">Entity type</label>
+      <select id="ent-type"><option>LLC</option><option>C‑Corp</option><option>Sole proprietorship</option></select>
+    </div>
+    <div id="entity-list"></div>
+  </div>
+
+  <div class="card">
+    <h3>Contract Templates Hub</h3>
+    <div id="contracts-list"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card"><h3>SOP Database</h3><div id="tbl-sops"></div></div>
+    <div class="card"><h3>Tech Stack List</h3><div id="tbl-techstack"></div><div class="mono" id="tech-total" style="margin-top:8px;color:var(--muted);font-size:12px;"></div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card"><h3>Meeting Template — Weekly Founder Sync</h3><textarea id="mt-sync" style="width:100%;min-height:100px;"></textarea></div>
+    <div class="card"><h3>Meeting Template — Retrospective</h3><textarea id="mt-retro" style="width:100%;min-height:100px;"></textarea></div>
+  </div>
+  `;
+}
+function wireOps(){
+  $('#ent-type').value = state.entity.type; $('#ent-type').onchange = e=>state.entity.type=e.target.value;
+  function renderEntity(){
+    $('#entity-list').innerHTML = `<ul class="checklist">${state.entity.steps.map((s,i)=>`<li class="${s.done?'done':''}"><input type="checkbox" data-i="${i}" ${s.done?'checked':''}><div class="txt">${s.t}</div></li>`).join('')}</ul>`;
+  }
+  renderEntity();
+  $('#entity-list').addEventListener('click', e=>{ if(e.target.type==='checkbox'){ state.entity.steps[+e.target.dataset.i].done=e.target.checked; renderEntity(); } });
+
+  function renderContracts(){
+    $('#contracts-list').innerHTML = state.contracts.map((c,i)=>`
+      <div class="card" style="background:var(--panel-2);margin-bottom:10px;">
+        <h3 style="margin-bottom:8px;">${c.name}</h3>
+        <div class="hint-box" style="margin-bottom:10px;">${c.note}</div>
+        <div class="field"><label class="f">Your placeholder / draft link</label><input data-i="${i}" value="${c.link}"></div>
+      </div>`).join('');
+  }
+  renderContracts();
+  $('#contracts-list').addEventListener('input', e=>{ if(e.target.dataset.i!==undefined) state.contracts[+e.target.dataset.i].link = e.target.value; });
+
+  buildTable($('#tbl-sops'), [{key:'name',label:'SOP'},{key:'owner',label:'Owner'},{key:'updated',label:'Last updated'},{key:'notes',label:'Notes / link'}], state.sops, {blank:()=>({name:'',owner:'Founder',updated:'',notes:''})});
+
+  buildTable($('#tbl-techstack'), [{key:'tool',label:'Tool'},{key:'owner',label:'Owner'},{key:'cost',label:'Monthly cost',type:'number'},{key:'renew',label:'Renewal date'}], state.techstack, {blank:()=>({tool:'',owner:'Founder',cost:0,renew:''}), onChange:renderTechTotal});
+  renderTechTotal();
+
+  $('#mt-sync').value = state.meetings.sync; $('#mt-sync').oninput=e=>state.meetings.sync=e.target.value;
+  $('#mt-retro').value = state.meetings.retro; $('#mt-retro').oninput=e=>state.meetings.retro=e.target.value;
+}
+function renderTechTotal(){
+  const el = $('#tech-total'); if(!el) return;
+  const total = state.techstack.reduce((s,t)=>s+(Number(t.cost)||0),0);
+  el.textContent = `Total tool spend: ${fmt(total)}/mo — reconcile this against the "Software" line in your budget.`;
+}
+
+/* ============================================================
+   PANEL: METRICS & REPORTING
+   ============================================================ */
+function renderMetrics(){
+  return `
+  <div class="eyebrow">06 · Reality‑check layer</div>
+  <h1 class="paneltitle">Metrics & Reporting</h1>
+  <p class="subtitle">If you only ever fill in one module honestly, make it this one.</p>
+
+  <div class="card">
+    <h3>North Star Metric</h3>
+    <p class="hint">If we only track one number...</p>
+    <div class="field"><label class="f">The number</label><input id="ns-metric"></div>
+    <div class="field"><label class="f">Why this one</label><textarea id="ns-why"></textarea></div>
+  </div>
+
+  <div class="card">
+    <h3>Weekly Scorecard <span class="tag">auto‑rolling</span></h3>
+    <div id="tbl-scorecard"></div>
+  </div>
+
+  <div class="card">
+    <h3>Investor Update Template <span class="tag">builds discipline even pre‑investor</span></h3>
+    <div class="grid2">
+      <div class="field"><label class="f">Wins</label><textarea id="iu-wins"></textarea></div>
+      <div class="field"><label class="f">Challenges</label><textarea id="iu-challenges"></textarea></div>
+      <div class="field"><label class="f">Asks</label><textarea id="iu-asks"></textarea></div>
+      <div class="field"><label class="f">Metrics snapshot</label><textarea id="iu-snapshot" placeholder="Paste your latest scorecard row"></textarea></div>
+    </div>
+    <button class="btn" id="iu-gen">Generate draft</button>
+    <div class="pretext" id="iu-out" style="margin-top:12px;display:none;"></div>
+  </div>
+  `;
+}
+function wireMetrics(){
+  const ns = state.northStar; $('#ns-metric').value=ns.metric; $('#ns-why').value=ns.why;
+  $('#ns-metric').oninput=e=>ns.metric=e.target.value; $('#ns-why').oninput=e=>ns.why=e.target.value;
+
+  buildTable($('#tbl-scorecard'), [{key:'week',label:'Week'},{key:'revenue',label:'Revenue',type:'number'},{key:'users',label:'Users',type:'number'},{key:'churn',label:'Churn %',type:'number'},{key:'cac',label:'CAC',type:'number'}], state.scorecard, {blank:()=>({week:'',revenue:0,users:0,churn:0,cac:0})});
+
+  const iu = state.investor;
+  ['wins','challenges','asks','snapshot'].forEach(k=>{ const el=$('#iu-'+k); el.value=iu[k]; el.oninput=e=>iu[k]=e.target.value; });
+  $('#iu-gen').onclick = ()=>{
+    const out = `INVESTOR UPDATE — ${new Date().toISOString().slice(0,10)}
+
+WINS
+${iu.wins||'—'}
+
+CHALLENGES
+${iu.challenges||'—'}
+
+ASKS
+${iu.asks||'—'}
+
+METRICS SNAPSHOT
+${iu.snapshot||'—'}
+
+North Star: ${ns.metric||'not yet defined'} — ${ns.why||''}`;
+    const box = $('#iu-out'); box.style.display='block'; box.textContent = out;
+  };
+}
+
+/* ============================================================
+   PANEL: SCALE-UP (CRM & Content) — deliberately thin, links back
+   ============================================================ */
+function renderScale(){
+  return `
+  <div class="eyebrow">06 · Reality‑check layer, extended</div>
+  <h1 class="paneltitle">Scale‑Up: CRM & Content</h1>
+  <p class="subtitle">The brief asks for a Content Strategy Calendar, a CRM, and an OKR tracker at this stage too. Rather than build three more databases that duplicate what you already have, this module is one new database (contact‑level CRM) plus cross‑links to the two that already exist — a single source of truth beats four places to update the same fact.</p>
+
+  <div class="hint-box"><b>Why no duplicate Content Calendar or OKR tracker here:</b> you already have both, upstream. Duplicating them means updating two places every time something changes — the first thing to break in a real Notion build. Jump to them instead:</div>
+  <div style="margin-bottom:20px;">
+    <button class="crosslink" data-jump="gtm">→ Content Calendar (Go‑to‑Market)</button>
+    <button class="crosslink" data-jump="bizmodel">→ OKR Tracker (Business Model)</button>
+  </div>
+
+  <div class="card">
+    <h3>CRM <span class="tag">contact‑level, feeds Sales Pipeline</span></h3>
+    <div id="tbl-crm"></div>
+  </div>
+  `;
+}
+function wireScale(){
+  buildTable($('#tbl-crm'), [{key:'name',label:'Contact'},{key:'company',label:'Company'},{key:'stage',label:'Stage',type:'select',options:['Lead','Qualified','Proposal','Closed']},{key:'lastContact',label:'Last contact'},{key:'next',label:'Next action'}], state.crm, {blank:()=>({name:'',company:'',stage:'Lead',lastContact:'',next:''})});
+  $('#content').querySelectorAll('[data-jump]').forEach(b=>b.onclick = ()=>gotoPanel(b.dataset.jump));
+}
+
+/* ============================================================
+   PANEL: ARCHITECTURE & USER FLOW
+   ============================================================ */
+function renderFlow(){
+  return `
+  <div class="eyebrow">How to run this OS</div>
+  <h1 class="paneltitle">Architecture & Suggested User Flow</h1>
+  <p class="subtitle">The best Notion builds don't just store information — they sequence decisions. Nobody should open this and wonder "what do I do now?"</p>
+
+  <div class="card">
+    <h3>Suggested User Flow</h3>
+    ${[
+      ['Land on Mission Control','See the whole company on one screen before touching any module.'],
+      ['Click "I have an idea but no name"','Routes into Naming & Identity Lab.'],
+      ['Open the Naming Wizard','Fifteen prompts and a scoring rubric — score every candidate the same way.'],
+      ['Add candidates to the Brand Name Database','Each row auto‑calculates its score; sort by score, not by gut feel.'],
+      ['Check the box that unlocks Legal Setup','Once a name is chosen, the Entity Setup Checklist in Operations & Legal becomes relevant.'],
+      ['Everything feeds back to the dashboard','No module lives on an island — Mission Control is a rollup, not a separate to‑do list.'],
+    ].map((f,i)=>`<div class="flowstep"><div class="fnum">${String(i+1).padStart(2,'0')}</div><div class="ft"><h4>${f[0]}</h4><p>${f[1]}</p></div></div>`).join('')}
+  </div>
+
+  <div class="card">
+    <h3>Pro Tips for Notion Architecture</h3>
+    <ul style="color:var(--muted);font-size:13px;line-height:1.9;padding-left:20px;">
+      <li><b style="color:var(--ink)">One fact, one home.</b> If burn rate lives in both Finance and Mission Control as separate numbers, they will drift. Use relations + rollups so Mission Control reads Finance, never re‑enters it.</li>
+      <li><b style="color:var(--ink)">Templates over duplication.</b> The PRD, the Role Builder, and the Onboarding Checklist are all "fill this in again" patterns — build one template and duplicate it, don't rebuild the structure each time.</li>
+      <li><b style="color:var(--ink)">Gate views by status, not by folder.</b> A launch checklist filtered to "Alpha, not done" is more useful than three separate alpha/beta/public pages.</li>
+      <li><b style="color:var(--ink)">Every database needs an owner and an owner field.</b> Even a solo founder should tag "Founder" — it's what makes the system survive hire #1.</li>
+      <li><b style="color:var(--ink)">Score, don't vibe.</b> Naming, channels, and risk all use the same trick: turn a judgment call into 1–5 fields so future‑you can sort instead of re‑deciding.</li>
+      <li><b style="color:var(--ink)">Build the empty state on purpose.</b> A checklist with nothing checked should look like "start here," not like a bug.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Bottom line</h3>
+    <p style="color:var(--muted);font-size:13.5px;">The structure itself should guide you from idea → validation → brand → launch → team, one gated step at a time. The gate indicator in the header above tracks exactly that — it moves as you actually do the work, not as you wish you had.</p>
+  </div>
+  `;
+}
+
+/* ============================================================
+   BUSINESS SUMMARY — every database, rolled into downloadable docs
+   ============================================================ */
+function topName(){ if(!state.names.length) return null; return [...state.names].sort((a,b)=>nameScore(b)-nameScore(a))[0]; }
+function companyName(){ const t=topName(); return (t&&t.name) || 'Your Company'; }
+function slug(s){ return (s||'company').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') || 'company'; }
+function budgetMonthlyTotal(){ return state.budget.reduce((s,b)=>s+(Number(b.monthly)||0),0); }
+function budgetOnetimeTotal(){ return state.budget.reduce((s,b)=>s+(Number(b.onetime)||0),0); }
+function runwayMonthsCalc(){ const m=budgetMonthlyTotal(); return m>0 ? state.cash/m : Infinity; }
+function budgetByCategory(){ const map={}; state.budget.forEach(b=>{ const key=b.cat||'Other'; map[key]=(map[key]||0)+(Number(b.monthly)||0)*12+(Number(b.onetime)||0); }); return map; }
+function capTableLines(){ const total=state.capTable.reduce((s,c)=>s+(Number(c.shares)||0),0); return state.capTable.map(c=>`- ${c.holder}: ${(Number(c.shares)||0).toLocaleString()} shares (${total?((c.shares/total)*100).toFixed(1):'0'}%)`).join('\n') || '- Not yet entered'; }
+function bulletList(arr, fn, empty){ return arr.length ? arr.map(fn).join('\n') : `- ${empty}`; }
+function latestScoreRow(){ return state.scorecard.length ? state.scorecard[state.scorecard.length-1] : null; }
+function openRolesCount(){ const filled = state.org.map(o=>o.role); return state.roleBuilder.filter(r=>!filled.includes(r.role)).length; }
+function stamp(){ return new Date().toISOString().slice(0,10); }
+
+function buildExecutiveSummary(){
+  const name = companyName(); const sc = latestScoreRow();
+  return `# Executive Summary — ${name}
+
+**One‑line pitch:** ${state.bmc.val || state.brandBrief.mission || '—'}
+
+**Problem:** ${state.canvas.who || '—'}${state.canvas.pain ? ' — '+state.canvas.pain : ''}
+
+**Solution:** ${state.bmc.val || '—'}
+
+**Market:** ${state.bmc.seg || '—'}  ·  ${state.competitors.length} competitor(s) mapped
+
+**North Star metric:** ${state.northStar.metric || 'not yet defined'}${state.northStar.why ? ' — '+state.northStar.why : ''}
+
+**Traction:** ${sc ? `Week of ${sc.week}: $${(Number(sc.revenue)||0).toLocaleString()} revenue, ${sc.users||0} users, ${sc.churn||0}% churn` : 'No scorecard entries yet'}
+
+**Financials:** $${budgetMonthlyTotal().toLocaleString()}/mo burn · ${isFinite(runwayMonthsCalc())?runwayMonthsCalc().toFixed(1)+' months runway':'runway not yet modeled'} · $${state.cash.toLocaleString()} cash on hand
+
+**The ask:** ${state.investor.asks || (state.investor.raiseAmount ? `$${Number(state.investor.raiseAmount).toLocaleString()}` : 'Not yet defined')}
+
+_Generated ${stamp()} · Founder's Self‑Serve Notion OS_
+`;
+}
+
+function buildBusinessSummary(){
+  const name = companyName();
+  return `# Business Summary — ${name}
+
+## Overview
+${state.brandBrief.mission || '—'}
+${state.brandBrief.vision ? '\nVision: '+state.brandBrief.vision : ''}
+${state.brandBrief.voice ? '\nVoice/tone: '+state.brandBrief.voice : ''}
+${state.brandBrief.antiAudience ? '\nNot for: '+state.brandBrief.antiAudience : ''}
+
+## Problem & customers
+Who hurts most: ${state.canvas.who || '—'}
+Pain: ${state.canvas.pain || '—'}
+Current alternative: ${state.canvas.alt || '—'}
+Why now: ${state.canvas.why || '—'}
+
+Interviews logged: ${state.interviews.length}
+${bulletList(state.interviews, i=>`- ${i.name} (${i.segment}) — "${i.quote}" · pain ${i.pain}/5 · would pay: ${i.pay?'yes':'no'}`, 'No interviews logged yet')}
+
+## Business model
+- Value proposition: ${state.bmc.val || '—'}
+- Customer segments: ${state.bmc.seg || '—'}
+- Channels: ${state.bmc.chan || '—'}
+- Customer relationships: ${state.bmc.rel || '—'}
+- Key activities: ${state.bmc.act || '—'}
+- Key resources: ${state.bmc.res || '—'}
+- Key partners: ${state.bmc.part || '—'}
+- Cost structure: ${state.bmc.cost || '—'}
+- Revenue streams: ${state.bmc.rev || '—'}
+
+## Go‑to‑market
+Top channels by priority score:
+${bulletList([...state.channels].sort((a,b)=>(((b.speed||0)+(b.fit||0))-((b.cost||0)+(b.effort||0)))-(((a.speed||0)+(a.fit||0))-((a.cost||0)+(a.effort||0)))).slice(0,3) || state.channels, c=>`- ${c.channel} (cost ${c.cost}, speed ${c.speed}, fit ${c.fit}, effort ${c.effort})`, 'No channels evaluated yet')}
+
+## Team
+${bulletList(state.org, o=>`- ${o.role}${o.reportsTo?' → reports to '+o.reportsTo:''}`, 'Just the founder so far')}
+Open roles drafted but not yet filled: ${openRolesCount()}
+
+## Financial snapshot
+Monthly burn: $${budgetMonthlyTotal().toLocaleString()} · Runway: ${isFinite(runwayMonthsCalc())?runwayMonthsCalc().toFixed(1)+' months':'not yet modeled'}
+
+## Decisions on record
+${bulletList(state.decisions, d=>`- ${d.date}: ${d.decision} — ${d.why}`, 'No decisions logged yet')}
+
+_Generated ${stamp()} · Founder's Self‑Serve Notion OS_
+`;
+}
+
+function buildBusinessPlan(){
+  const name = companyName();
+  return `# Business Plan — ${name}
+
+${buildExecutiveSummary().replace(/^# Executive Summary.*\n/,'## 1. Executive Summary\n')}
+
+## 2. Problem & Validation
+Who hurts most: ${state.canvas.who || '—'}
+Pain: ${state.canvas.pain || '—'}
+Current alternative: ${state.canvas.alt || '—'}
+Why now: ${state.canvas.why || '—'}
+
+Validation gates passed: ${state.validation.filter(v=>v.done).length} / ${state.validation.length}
+${bulletList(state.validation, v=>`- [${v.done?'x':' '}] ${v.g}`, 'Checklist not started')}
+
+## 3. Naming & Brand
+Top‑scoring candidate: ${topName() ? `${topName().name} (${nameScore(topName())}/14)` : 'not yet scored'}
+Brand voice: ${state.brandBrief.voice || '—'}
+Anti‑audience: ${state.brandBrief.antiAudience || '—'}
+
+## 4. Business Model
+- Value proposition: ${state.bmc.val || '—'}
+- Customer segments: ${state.bmc.seg || '—'}
+- Channels: ${state.bmc.chan || '—'}
+- Revenue streams: ${state.bmc.rev || '—'}
+- Cost structure: ${state.bmc.cost || '—'}
+- Key partners: ${state.bmc.part || '—'}
+- Key activities / resources: ${state.bmc.act || '—'} / ${state.bmc.res || '—'}
+
+Strategic plan — Year 1: ${state.plan.y1 || '—'} · Q1: ${state.plan.q1 || '—'} · Month 1: ${state.plan.m1 || '—'}
+
+OKRs:
+${bulletList(state.okrs, o=>`- ${o.obj} — ${o.kr} (${o.progress||0}% · ${o.q}, owner ${o.owner})`, 'No OKRs set yet')}
+
+## 5. Market & Competition
+${bulletList(state.competitors, c=>`- ${c.name}: strength — ${c.strength}; weakness — ${c.weakness}; price — ${c.price}; our edge — ${c.diff}`, 'No competitors mapped yet')}
+
+## 6. Product
+PRDs on file: ${state.prds.length}
+${bulletList(state.prds, p=>`- ${p.feature}: ${p.problem}`, 'No PRDs yet')}
+Launch checklist complete: ${state.launch.filter(l=>l.done).length} / ${state.launch.length}
+
+## 7. Go‑to‑Market
+Milestones:
+${bulletList(state.timeline, t=>`- ${t.date}: ${t.milestone}`, 'No milestones set')}
+Content pieces in calendar: ${state.content.length} · Growth experiments logged: ${state.experiments.length}
+Sales pipeline: lead ${state.salesPipeline.lead.length} · qualified ${state.salesPipeline.qualified.length} · proposal ${state.salesPipeline.proposal.length} · closed ${state.salesPipeline.closed.length}
+
+## 8. Team & Hiring
+${bulletList(state.org, o=>`- ${o.role}${o.reportsTo?' → reports to '+o.reportsTo:''}`, 'Just the founder so far')}
+Candidate pipeline: applied ${state.candidates.applied.length} · screened ${state.candidates.screened.length} · interviewed ${state.candidates.interviewed.length} · offered ${state.candidates.offered.length}
+
+## 9. Operations & Legal
+Entity type: ${state.entity.type} — setup steps complete: ${state.entity.steps.filter(s=>s.done).length} / ${state.entity.steps.length}
+SOPs documented: ${state.sops.length} · Tools in stack: ${state.techstack.length} ($${state.techstack.reduce((s,t)=>s+(Number(t.cost)||0),0).toLocaleString()}/mo)
+
+## 10. Financial Plan
+Monthly burn: $${budgetMonthlyTotal().toLocaleString()} · One‑time costs: $${budgetOnetimeTotal().toLocaleString()}
+Cash on hand: $${state.cash.toLocaleString()} · Runway: ${isFinite(runwayMonthsCalc())?runwayMonthsCalc().toFixed(1)+' months':'not yet modeled'}
+Cap table:
+${capTableLines()}
+
+## 11. Risks
+${bulletList([...state.risks].sort((a,b)=>(b.like*b.impact)-(a.like*a.impact)), r=>`- ${r.risk} (score ${(r.like||0)*(r.impact||0)}) — mitigation: ${r.mitigation}`, 'No risks logged yet')}
+
+## 12. Metrics & Reporting
+North Star: ${state.northStar.metric || '—'}
+${bulletList(state.scorecard, s=>`- ${s.week}: $${(Number(s.revenue)||0).toLocaleString()} rev, ${s.users||0} users, ${s.churn||0}% churn, $${s.cac||0} CAC`, 'No scorecard history yet')}
+
+_Generated ${stamp()} · Founder's Self‑Serve Notion OS_
+`;
+}
+
+function buildFinancials(){
+  const cat = budgetByCategory();
+  return `# Financials — ${companyName()}
+
+## Budget (line items)
+${bulletList(state.budget, b=>`- ${b.item} [${b.cat}] — $${(Number(b.monthly)||0).toLocaleString()}/mo, $${(Number(b.onetime)||0).toLocaleString()} one‑time`, 'No budget entered yet')}
+
+**Monthly total:** $${budgetMonthlyTotal().toLocaleString()}
+**One‑time total:** $${budgetOnetimeTotal().toLocaleString()}
+
+## Annualized spend by category
+${Object.keys(cat).length ? Object.entries(cat).map(([k,v])=>`- ${k}: $${v.toLocaleString()}/yr`).join('\n') : '- Not yet available'}
+
+## Runway
+Cash on hand: $${state.cash.toLocaleString()}
+Monthly burn: $${budgetMonthlyTotal().toLocaleString()}
+Runway: ${isFinite(runwayMonthsCalc())?runwayMonthsCalc().toFixed(1)+' months':'no recurring burn logged'}
+
+## Cap table (pre‑seed, simple)
+${capTableLines()}
+
+## Pricing worksheet
+Cost‑plus: $${(state.pricing.cost*(1+state.pricing.margin/100)).toLocaleString()} (unit cost $${state.pricing.cost} + ${state.pricing.margin}% margin)
+Value‑based: $${Number(state.pricing.value).toLocaleString()}
+Competitive reference: $${Number(state.pricing.competitor).toLocaleString()}
+
+## Expense log
+${bulletList(state.expenses, e=>`- ${e.date} — ${e.vendor}: $${(Number(e.amount)||0).toLocaleString()} (${e.category})`, 'No expenses logged yet')}
+
+## Weekly scorecard
+${bulletList(state.scorecard, s=>`- ${s.week}: $${(Number(s.revenue)||0).toLocaleString()} rev · ${s.users||0} users · ${s.churn||0}% churn · $${s.cac||0} CAC`, 'No scorecard history yet')}
+
+_Generated ${stamp()} · Founder's Self‑Serve Notion OS_
+`;
+}
+
+function buildInvestmentProposal(){
+  const cat = budgetByCategory();
+  const ask = state.investor.raiseAmount ? `$${Number(state.investor.raiseAmount).toLocaleString()}` : (state.investor.asks || 'amount not yet set');
+  return `# Investment Proposal — ${companyName()}
+
+## The ask
+${ask}
+${state.investor.useOfFunds ? '\nUse of funds (founder notes): '+state.investor.useOfFunds : ''}
+
+Suggested use of funds, based on current budget mix:
+${Object.keys(cat).length ? Object.entries(cat).map(([k,v])=>{const tot=Object.values(cat).reduce((a,b)=>a+b,0);return `- ${k}: ${tot?((v/tot)*100).toFixed(0):0}%`;}).join('\n') : '- Add line items to the Finance module to generate this automatically'}
+
+## Problem & solution
+${state.canvas.who || '—'}${state.canvas.pain?' — '+state.canvas.pain:''}
+Solution: ${state.bmc.val || '—'}
+
+## Market
+${state.bmc.seg || '—'}  ·  ${state.competitors.length} competitor(s) tracked
+${bulletList(state.competitors, c=>`- ${c.name}: our edge — ${c.diff}`, '')}
+
+## Traction
+North Star: ${state.northStar.metric || 'not yet defined'}
+${latestScoreRow() ? `Latest week: $${(Number(latestScoreRow().revenue)||0).toLocaleString()} revenue, ${latestScoreRow().users||0} users` : 'No scorecard entries yet'}
+Validation gates passed: ${state.validation.filter(v=>v.done).length} / ${state.validation.length}
+
+## Financial highlights
+Monthly burn: $${budgetMonthlyTotal().toLocaleString()} · Runway: ${isFinite(runwayMonthsCalc())?runwayMonthsCalc().toFixed(1)+' months':'not yet modeled'}
+Cap table:
+${capTableLines()}
+
+## Team
+${bulletList(state.org, o=>`- ${o.role}${o.reportsTo?' → reports to '+o.reportsTo:''}`, 'Founder only, hiring plan drafted in Role Builder')}
+
+## Top risks
+${bulletList([...state.risks].sort((a,b)=>(b.like*b.impact)-(a.like*a.impact)).slice(0,3), r=>`- ${r.risk} — mitigation: ${r.mitigation}`, 'No risks logged yet')}
+
+## Closing
+${state.investor.wins ? 'Recent wins: '+state.investor.wins : ''}
+
+_Generated ${stamp()} · Founder's Self‑Serve Notion OS_
+`;
+}
+
+function buildRiskAnalysis(){
+  const unvalidated = state.validation.filter(v=>!v.done);
+  const highBugs = state.bugs.filter(b=>b.severity==='High' && b.status!=='Fixed');
+  return `# Risk Analysis — ${companyName()}
+
+## Risk register (sorted by severity)
+${bulletList([...state.risks].sort((a,b)=>(b.like*b.impact)-(a.like*a.impact)), r=>`- **${r.risk}** — likelihood ${r.like}/5, impact ${r.impact}/5, score ${(r.like||0)*(r.impact||0)}/25\n  Mitigation: ${r.mitigation || 'none logged'} (owner: ${r.owner})`, 'No risks logged yet')}
+
+## Unvalidated assumptions
+Gates not yet cleared in the Validation Checklist — each is a standing risk until closed:
+${bulletList(unvalidated, v=>`- ${v.g}`, 'All validation gates cleared')}
+
+## Open high‑severity bugs
+${bulletList(highBugs, b=>`- ${b.issue} (assignee: ${b.assignee})`, 'No open high‑severity bugs')}
+
+## Financial risk
+Runway: ${isFinite(runwayMonthsCalc())?runwayMonthsCalc().toFixed(1)+' months':'not yet modeled'} at current burn of $${budgetMonthlyTotal().toLocaleString()}/mo.
+${isFinite(runwayMonthsCalc()) && runwayMonthsCalc()<3 ? '**Flag: under 3 months of runway.**' : ''}
+
+## Team / key‑person risk
+Org chart currently lists ${state.org.length} role(s). ${state.org.length<=1 ? 'Single‑founder dependency — no redundancy on any function yet.' : ''}
+
+_Generated ${stamp()} · Founder's Self‑Serve Notion OS_
+`;
+}
+
+const summaryDocs = {
+  exec:{title:'Executive Summary', tag:'1 page', desc:'The elevator‑pitch version — problem, solution, traction, ask.', build:buildExecutiveSummary},
+  summary:{title:'Business Summary', tag:'2–3 pages', desc:'A fuller narrative covering the model, team, and go‑to‑market.', build:buildBusinessSummary},
+  plan:{title:'Business Plan', tag:'full document', desc:'Every module, in order — the complete plan.', build:buildBusinessPlan},
+  financials:{title:'Financials', tag:'budget · runway · cap table', desc:'All numbers in one place: budget, runway, pricing, expenses, scorecard.', build:buildFinancials},
+  proposal:{title:'Investment Proposal', tag:'investor‑facing', desc:'Ask, use of funds, traction, and top risks — ready to paste into an email.', build:buildInvestmentProposal},
+  risk:{title:'Risk Analysis', tag:'register + flags', desc:'Risk register plus auto‑flagged unvalidated assumptions and open blockers.', build:buildRiskAnalysis},
+};
+
+function downloadText(content, filename){
+  const blob = new Blob([content], {type:'text/markdown'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+}
+
+/* Convert the lightweight markdown produced by the build* functions into
+   HTML, then wrap it in an Office-flavoured HTML shell so it opens directly
+   in Microsoft Word as a real, formatted, editable .doc file. */
+function mdToWordHtml(md){
+  const lines = md.split('\n');
+  let html = '', inList = false;
+  const closeList = ()=>{ if(inList){ html += '</ul>'; inList=false; } };
+  const inlineFmt = s => s.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');
+  lines.forEach(line=>{
+    if(/^# /.test(line)){ closeList(); html += `<h1>${inlineFmt(line.slice(2))}</h1>`; }
+    else if(/^## /.test(line)){ closeList(); html += `<h2>${inlineFmt(line.slice(3))}</h2>`; }
+    else if(/^### /.test(line)){ closeList(); html += `<h3>${inlineFmt(line.slice(4))}</h3>`; }
+    else if(/^-\s+/.test(line)){ if(!inList){ html+='<ul>'; inList=true; } html += `<li>${inlineFmt(line.replace(/^-\s+/,''))}</li>`; }
+    else if(line.trim()===''){ closeList(); }
+    else { closeList(); html += `<p>${inlineFmt(line)}</p>`; }
+  });
+  closeList();
+  return html;
+}
+function downloadWordDoc(filename, title, md){
+  const bodyHtml = mdToWordHtml(md);
+  const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head><meta charset='utf-8'><title>${title}</title>
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml><![endif]-->
+<style>
+  body{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1a1a1a;line-height:1.5;}
+  h1{font-size:20pt;color:#B5791F;border-bottom:1px solid #ccc;padding-bottom:4px;}
+  h2{font-size:14pt;color:#1a1a1a;margin-top:18pt;}
+  h3{font-size:12pt;color:#333;}
+  p{margin:0 0 8pt 0;}
+  ul{margin:0 0 10pt 20pt;}
+  li{margin-bottom:3pt;}
+  b{color:#000;}
+</style></head>
+<body>${bodyHtml}</body></html>`;
+  const blob = new Blob(['\ufeff', html], {type:'application/msword'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+}
+
+function roundRectPath(ctx,x,y,w,h,r){
+  ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+function drawLogo(canvas){
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width = 1000, H = canvas.height = 500;
+  ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0,0,W,H);
+  const name = companyName();
+  const primary = state.colorLock.primary || '#F2A93B';
+  const secondary = state.colorLock.secondary || '#4FD1C5';
+  const markSize = 200, mx = 90, my = (H-markSize)/2;
+  roundRectPath(ctx, mx, my, markSize, markSize, 28); ctx.fillStyle = primary; ctx.fill();
+  ctx.fillStyle = '#FFFFFF'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font = "700 110px 'Arial', sans-serif";
+  ctx.fillText((name[0]||'F').toUpperCase(), mx+markSize/2, my+markSize/2+8);
+  ctx.fillStyle = secondary; ctx.fillRect(mx, my+markSize+18, markSize, 10);
+  ctx.textAlign = 'left'; ctx.fillStyle = '#161E2E';
+  ctx.font = "700 68px 'Arial', sans-serif";
+  ctx.fillText(name, mx+markSize+40, H/2-8);
+  const tagline = (state.bmc.val || state.brandBrief.mission || '').slice(0,58);
+  if(tagline){
+    ctx.fillStyle = '#5C6883'; ctx.font = "400 26px 'Arial', sans-serif";
+    ctx.fillText(tagline, mx+markSize+40, H/2+42);
+  }
+}
+
+function renderSummary(){
+  return `
+  <div class="eyebrow">11 · Outputs</div>
+  <h1 class="paneltitle">Business Summary</h1>
+  <p class="subtitle">Every field you've filled in, across all eleven modules, assembled into formatted Microsoft Word documents you can hand to a bank, a co‑founder, or an investor. Nothing here is re‑typed — it's all pulled live from the OS, and each download opens directly in Word with headings, bold, and lists intact.</p>
+
+  <div class="card">
+    <h3>Investor inputs <span class="tag">used by Investment Proposal</span></h3>
+    <div class="grid2">
+      <div class="field"><label class="f">Funding ask</label><input type="number" id="sum-ask"></div>
+      <div class="field"><label class="f">Use of funds notes (optional)</label><input id="sum-uof"></div>
+    </div>
+  </div>
+
+  <div class="grid2" id="summary-cards"></div>
+
+  <div class="card">
+    <h3>Logo Output <span class="tag">JPEG, generated from your Naming & Identity Lab inputs</span></h3>
+    <p class="hint">Uses your top‑scoring name candidate and the colors locked in on the Naming & Identity Lab page. Regenerate any time those change.</p>
+    <canvas id="logo-canvas" style="width:100%;max-width:500px;border:1px solid var(--line);border-radius:var(--radius);background:#fff;"></canvas>
+    <div style="margin-top:12px;">
+      <button class="btn ghost sm" id="logo-regen">Regenerate</button>
+      <button class="btn sm" id="logo-download">Download .jpg</button>
+    </div>
+  </div>
+  `;
+}
+function wireSummary(){
+  $('#sum-ask').value = state.investor.raiseAmount || '';
+  $('#sum-uof').value = state.investor.useOfFunds || '';
+  $('#sum-ask').oninput = e=>state.investor.raiseAmount = Number(e.target.value)||0;
+  $('#sum-uof').oninput = e=>state.investor.useOfFunds = e.target.value;
+
+  const cards = $('#summary-cards');
+  cards.innerHTML = Object.entries(summaryDocs).map(([key,d])=>`
+    <div class="card">
+      <h3>${d.title} <span class="tag">${d.tag}</span></h3>
+      <p class="hint">${d.desc}</p>
+      <div class="pretext" id="prev-${key}" style="display:none;max-height:280px;overflow:auto;"></div>
+      <div style="margin-top:10px;">
+        <button class="btn ghost sm" data-preview="${key}">Preview</button>
+        <button class="btn sm" data-download="${key}">Download .doc</button>
+      </div>
+    </div>`).join('');
+
+  cards.addEventListener('click', e=>{
+    const pk = e.target.dataset.preview, dk = e.target.dataset.download;
+    if(pk){
+      const box = document.getElementById('prev-'+pk);
+      const open = box.style.display !== 'none';
+      box.style.display = open ? 'none' : 'block';
+      if(!open) box.textContent = summaryDocs[pk].build();
+      e.target.textContent = open ? 'Preview' : 'Hide preview';
+    }
+    if(dk){
+      downloadWordDoc(`${slug(companyName())}-${dk}.doc`, summaryDocs[dk].title, summaryDocs[dk].build());
+      toast('Downloaded '+summaryDocs[dk].title+' (Word)');
+    }
+  });
+
+  const canvas = $('#logo-canvas');
+  drawLogo(canvas);
+  $('#logo-regen').onclick = ()=>{ drawLogo(canvas); toast('Logo regenerated'); };
+  $('#logo-download').onclick = ()=>{
+    const url = canvas.toDataURL('image/jpeg', 0.92);
+    const a = document.createElement('a'); a.href=url; a.download = slug(companyName())+'-logo.jpg';
+    document.body.appendChild(a); a.click(); a.remove();
+    toast('Logo downloaded');
+  };
+}
+
+/* ============================================================
+   ROUTING + GATES + BOOT
+   ============================================================ */
+const panels = {
+  dashboard:{render:renderDashboard, wire:wireDashboard},
+  ideation:{render:renderIdeation, wire:wireIdeation},
+  naming:{render:renderNaming, wire:wireNaming},
+  bizmodel:{render:renderBizmodel, wire:wireBizmodel},
+  finance:{render:renderFinance, wire:wireFinance},
+  product:{render:renderProduct, wire:wireProduct},
+  gtm:{render:renderGtm, wire:wireGtm},
+  hiring:{render:renderHiring, wire:wireHiring},
+  ops:{render:renderOps, wire:wireOps},
+  metrics:{render:renderMetrics, wire:wireMetrics},
+  scale:{render:renderScale, wire:wireScale},
+  summary:{render:renderSummary, wire:wireSummary},
+  flow:{render:renderFlow, wire:null},
+};
+function gotoPanel(name){
+  $$('.navbtn').forEach(b=>b.classList.toggle('active', b.dataset.p===name));
+  const content = $('#content');
+  content.innerHTML = panels[name].render();
+  if(panels[name].wire) panels[name].wire();
+  window.scrollTo({top:0, behavior:'instant'});
+  content.scrollTop = 0;
+}
+$$('.navbtn').forEach(b=> b.onclick = ()=> gotoPanel(b.dataset.p));
+
+function refreshGates(){
+  const validationDone = state.validation.filter(v=>v.done).length;
+  const ideaGate = true; // canvas started = always "on" once app is running
+  const validateGate = validationDone >= 6;
+  const brandGate = state.names.some(n=>nameScore(n) >= 8) && state.names.length>0;
+  const launchGate = state.launch.filter(l=>l.done).length >= 4;
+  const teamGate = state.candidates.offered.length >= 1;
+  const gates = [ideaGate, validateGate, brandGate, launchGate, teamGate];
+  const wrap = $('#gatewrap');
+  const bars = ['Idea','Validate','Brand','Launch','Team'].map((label,i)=>{
+    const cls = gates[i] ? 'gate on' : (i===gates.findIndex(g=>!g) ? 'gate cur' : 'gate');
+    return `<span class="gname">${label}</span><span class="${cls}"></span>`;
+  }).join('');
+  wrap.innerHTML = bars;
+}
+
+function refreshDashboard(){ refreshDashboardPanel(); refreshHeaderCounts(); refreshGates(); }
+function refreshHeaderCounts(){
+  const monthly = state.budget.reduce((s,b)=>s+(Number(b.monthly)||0),0);
+  $('#m-burn').textContent = fmt(monthly);
+  const runway = monthly>0 ? (state.cash/monthly) : Infinity;
+  const rEl = $('#m-runway');
+  rEl.textContent = isFinite(runway) ? runway.toFixed(1)+' mo' : '∞';
+  rEl.className = 'val mono ' + (isFinite(runway) && runway<3 ? 'crit' : isFinite(runway) && runway<6 ? 'warn' : 'good');
+  const c = state.candidates;
+  $('#m-hiring').textContent = c.applied.length+c.screened.length+c.interviewed.length;
+  $('#m-decisions').textContent = state.decisions.length;
+  $('#m-todos').textContent = state.todos.filter(t=>t.week && !t.done).length;
+}
+
+// central onChange hook used by many buildTable() calls
+function refreshDashboardPanel(){
+  refreshHeaderCounts();
+  const dh = document.getElementById('dash-hiring');
+  if(dh){
+    const c = state.candidates;
+    const total = c.applied.length+c.screened.length+c.interviewed.length+c.offered.length;
+    dh.innerHTML = `Applied ${c.applied.length} → Screened ${c.screened.length} → Interviewed ${c.interviewed.length} → Offered ${c.offered.length}<br><span style="color:var(--dim)">${total} of 12‑seat pipeline capacity in motion</span>`;
+  }
+  const df = document.getElementById('dash-finance');
+  if(df){
+    const monthly = state.budget.reduce((s,b)=>s+(Number(b.monthly)||0),0);
+    const runwayMonths = monthly>0 ? (state.cash/monthly) : Infinity;
+    df.innerHTML = `Monthly burn: <b>${fmt(monthly)}</b><br>Cash on hand: <b>${fmt(state.cash)}</b><br>Runway: <b>${isFinite(runwayMonths)?runwayMonths.toFixed(1)+' months':'∞ (no recurring burn logged)'}</b>`;
+  }
+}
+
+// boot
+gotoPanel('dashboard');
+refreshDashboard();
+
+// auth UI wiring
+if(window.__authUser){
+  const emailEl = document.getElementById('auth-user-email');
+  if(emailEl) emailEl.textContent = window.__authUser.email || '';
+}
+const signoutBtn = document.getElementById('signout-btn');
+if(signoutBtn){
+  signoutBtn.onclick = async () => {
+    signoutBtn.disabled = true;
+    signoutBtn.textContent = 'Signing out…';
+    await sb.auth.signOut();
+    clearSessionCookies();
+    window.location.replace('/login.html');
+  };
+}
+</script>
+</body>
+</html>
