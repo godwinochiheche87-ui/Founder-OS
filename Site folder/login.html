@@ -17,12 +17,19 @@
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
   });
 
+  const pageParams = new URLSearchParams(location.search);
+  const isSignupMode = pageParams.get('mode') === 'signup' && pageParams.get('tx');
+
   (async function checkExisting(){
+    // Don't short-circuit a fresh post-payment signup even if some old session lingers
+    if(isSignupMode){
+      document.documentElement.style.visibility = 'visible';
+      return;
+    }
     const { data: { session } } = await sb.auth.getSession();
     if(session){
       setSessionCookiesEarly(session);
-      const params = new URLSearchParams(location.search);
-      window.location.replace(params.get('redirect') || '/app.html');
+      window.location.replace(pageParams.get('redirect') || '/app.html');
       return;
     }
     document.documentElement.style.visibility = 'visible';
@@ -67,30 +74,26 @@ body{min-height:100vh;display:flex;align-items:center;justify-content:center;fon
 .card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:24px;}
 .card h1{font-size:17px;margin:0 0 4px;letter-spacing:-.01em;}
 .card p.sub{color:var(--muted);font-size:12.5px;margin:0 0 20px;}
-.tabs{display:flex;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:18px;}
-.tabs button{flex:1;background:var(--panel-2);border:none;color:var(--muted);font-size:12px;padding:8px 0;cursor:pointer;font-family:var(--mono);letter-spacing:.04em;}
-.tabs button.active{background:var(--amber);color:#1a1206;font-weight:600;}
+.badge{display:inline-block;background:rgba(79,209,197,.12);border:1px solid rgba(79,209,197,.35);color:var(--teal);font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;padding:4px 8px;border-radius:var(--radius);margin-bottom:16px;}
 label{display:block;font-size:11px;color:var(--dim);font-family:var(--mono);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 6px;}
 input{width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:var(--radius);padding:10px 10px;font-size:13.5px;}
 input:focus{outline:1px solid var(--amber);border-color:var(--amber);}
+input[readonly]{color:var(--muted);}
 button.primary{width:100%;margin-top:20px;background:var(--amber);color:#1a1206;border:none;border-radius:var(--radius);padding:11px 0;font-size:13.5px;font-weight:600;cursor:pointer;}
 button.primary:disabled{opacity:.6;cursor:default;}
 .msg{margin-top:14px;font-size:12.5px;padding:10px 12px;border-radius:var(--radius);display:none;}
 .msg.error{display:block;background:rgba(226,87,76,.12);border:1px solid rgba(226,87,76,.35);color:#f2a49d;}
 .msg.ok{display:block;background:rgba(79,209,197,.12);border:1px solid rgba(79,209,197,.35);color:var(--teal);}
 .foot{margin-top:16px;text-align:center;color:var(--dim);font-size:11.5px;}
+.foot a{color:var(--teal);text-decoration:none;}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="brandmark"><div class="dot"></div><div><b>FOUNDER OS</b><span>self-serve build</span></div></div>
+  <div class="brandmark"><div class="dot"></div><div><b>FOUNDER OS</b><span id="brand-sub">self-serve build</span></div></div>
 
   <div class="card">
-    <div class="tabs">
-      <button id="tab-signin" class="active">Sign in</button>
-      <button id="tab-signup">Create account</button>
-    </div>
-
+    <div id="signup-badge" class="badge" style="display:none;">✓ Payment verified</div>
     <h1 id="card-title">Welcome back</h1>
     <p class="sub" id="card-sub">Sign in to open your workspace.</p>
 
@@ -104,7 +107,7 @@ button.primary:disabled{opacity:.6;cursor:default;}
 
     <div class="msg" id="msg"></div>
   </div>
-  <p class="foot">Trouble signing in? Reach out to support and we'll sort you out.</p>
+  <p class="foot" id="foot-text">Haven't purchased yet? <a href="/pay.html">Get started</a></p>
 </div>
 
 <script>
@@ -113,10 +116,11 @@ button.primary:disabled{opacity:.6;cursor:default;}
   const passEl = document.getElementById('password');
   const submitBtn = document.getElementById('submit-btn');
   const msgEl = document.getElementById('msg');
-  const tabSignin = document.getElementById('tab-signin');
-  const tabSignup = document.getElementById('tab-signup');
   const cardTitle = document.getElementById('card-title');
   const cardSub = document.getElementById('card-sub');
+  const signupBadge = document.getElementById('signup-badge');
+  const footText = document.getElementById('foot-text');
+  const brandSub = document.getElementById('brand-sub');
 
   // Mirror the Supabase session into cookies so the Netlify Edge Function
   // (netlify/edge-functions/auth-guard.js) can verify it server-side, before
@@ -129,34 +133,27 @@ button.primary:disabled{opacity:.6;cursor:default;}
     document.cookie = `sb-refresh-token=${encodeURIComponent(session.refresh_token)}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`;
   }
 
-  let mode = 'signin';
-
-  function setMode(next){
-    mode = next;
-    msgEl.className = 'msg';
-    msgEl.textContent = '';
-    if(mode === 'signin'){
-      tabSignin.classList.add('active');
-      tabSignup.classList.remove('active');
-      cardTitle.textContent = 'Welcome back';
-      cardSub.textContent = "Sign in to open your workspace.";
-      submitBtn.textContent = 'Sign in';
-      passEl.setAttribute('autocomplete', 'current-password');
-    } else {
-      tabSignup.classList.add('active');
-      tabSignin.classList.remove('active');
-      cardTitle.textContent = 'Create your account';
-      cardSub.textContent = 'Set a password to get started.';
-      submitBtn.textContent = 'Create account';
-      passEl.setAttribute('autocomplete', 'new-password');
-    }
-  }
-  tabSignin.onclick = () => setMode('signin');
-  tabSignup.onclick = () => setMode('signup');
+  const txRef = pageParams.get('tx');
+  const paidEmail = pageParams.get('email');
+  const mode = isSignupMode ? 'signup' : 'signin';
 
   function showMsg(text, kind){
     msgEl.textContent = text;
     msgEl.className = 'msg ' + kind;
+  }
+
+  if(mode === 'signup'){
+    brandSub.textContent = 'create your account';
+    signupBadge.style.display = 'inline-block';
+    cardTitle.textContent = 'Create your account';
+    cardSub.textContent = 'Payment received — set a password to finish.';
+    submitBtn.textContent = 'Create account';
+    footText.innerHTML = 'Already have an account? <a href="/login.html">Sign in</a>';
+    passEl.setAttribute('autocomplete', 'new-password');
+    if(paidEmail){
+      emailEl.value = paidEmail;
+      emailEl.readOnly = true;
+    }
   }
 
   form.addEventListener('submit', async (e) => {
@@ -174,20 +171,25 @@ button.primary:disabled{opacity:.6;cursor:default;}
         const { data, error } = await sb.auth.signInWithPassword({ email, password });
         if(error) throw error;
         setSessionCookies(data.session);
-        const params = new URLSearchParams(location.search);
-        window.location.replace(params.get('redirect') || '/app.html');
+        window.location.replace(pageParams.get('redirect') || '/app.html');
       } else {
-        const { data, error } = await sb.auth.signUp({ email, password });
-        if(error) throw error;
-        if(data.session){
-          // Email confirmation is off in this Supabase project -> already logged in
-          setSessionCookies(data.session);
-          const params = new URLSearchParams(location.search);
-          window.location.replace(params.get('redirect') || '/app.html');
-        } else {
-          showMsg('Account created. Check your email to confirm, then sign in.', 'ok');
-          setMode('signin');
+        // Server-side gate: only succeeds if paid_customers has a matching,
+        // unused row for this email + tx_ref. See netlify/functions/complete-signup.js
+        const res = await fetch('/.netlify/functions/complete-signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, tx_ref: txRef }),
+        });
+        const data = await res.json();
+        if(!res.ok){
+          throw new Error(data.error || 'Could not create your account.');
         }
+
+        // Account created -> sign in immediately to establish a session
+        const { data: signInData, error: signInError } = await sb.auth.signInWithPassword({ email, password });
+        if(signInError) throw signInError;
+        setSessionCookies(signInData.session);
+        window.location.replace('/app.html');
       }
     } catch(err){
       showMsg(err.message || 'Something went wrong. Please try again.', 'error');
